@@ -197,6 +197,27 @@
                dueDay, pay, wallet, quitada, negs:[{date,text}], isNew, createdAt }
        Pagar a parcela cria um gasto (tx.debtId + tx.debtN) e soma 1 em "pagas". */
     const debts = (all) => S.recs.filter((r) => r.type === 'debt' && (all || !r.quitada)).sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+    const DEBT_KINDS = [['emprestimo', '🏦', 'Empréstimos e financiamentos'], ['parcelado', '🧾', 'Contas parceladas (carnê, crediário…)'], ['acordo', '🤝', 'Acordos e renegociações']];
+    // Parcelados no CARTÃO que ainda têm parcelas pela frente (só pra consulta: já estão nas faturas)
+    function cardInstallments() {
+      const out = [];
+      txs().filter((r) => r.pay === 'credito' && r.dir === 'out' && (r.parcelas || 1) > 1).forEach((r) => {
+        const w = S.recs.find((x) => x.id === r.wallet && x.kind === 'cartao');
+        const k0 = w ? M.faturaOf(r.date, w.closeDay, w.dueDay) : M.mkey(M.parse(r.date));
+        const nowK = w ? M.faturaOf(today(), w.closeDay, w.dueDay) : M.mkey(new Date());
+        const idx = (Number(nowK.slice(0, 4)) - Number(k0.slice(0, 4))) * 12 + Number(nowK.slice(5)) - Number(k0.slice(5));
+        const left = r.parcelas - Math.max(0, idx);
+        if (left > 0) out.push({ name: r.desc || M.cat(r.cat).nome, card: w ? w.name : 'cartão', parcela: Math.round(r.cents / r.parcelas), left, total: r.parcelas });
+      });
+      S.recs.filter((r) => r.type === 'cardinst').forEach((r) => {
+        const w = S.recs.find((x) => x.id === r.wallet);
+        const nowK = w ? M.faturaOf(today(), w.closeDay, w.dueDay) : M.mkey(new Date());
+        const idx = (Number(nowK.slice(0, 4)) - Number(r.firstKey.slice(0, 4))) * 12 + Number(nowK.slice(5)) - Number(r.firstKey.slice(5));
+        const left = r.remaining - Math.max(0, idx);
+        if (left > 0) out.push({ name: r.desc, card: w ? w.name : 'cartão', parcela: r.parcela, left, total: r.total });
+      });
+      return out;
+    }
     const restantes = (d) => Math.max(0, d.total - d.pagas);
     const saldoDe = (d) => d.saldo && d.saldo > 0 ? d.saldo : d.parcela * restantes(d);
     const debtPaidIn = (d, key) => txs().find((r) => r.debtId === d.id && String(r.date).slice(0, 7) === key);
@@ -231,11 +252,12 @@
     function budget(key) {
       const pr = planRec(key);
       const pOut = (pr && pr.out) || {}, pIn = (pr && pr.in) || {};
+      const pItems = (pr && pr.items) || {};
       const tx = txs().filter((r) => String(r.date).slice(0, 7) === key);
       const realBy = (dir) => { const m = {}; tx.filter((r) => r.dir === dir).forEach((r) => { m[r.cat] = (m[r.cat] || 0) + r.cents; }); return m; };
       const rOut = realBy('out'), rIn = realBy('in');
       const rows = (pl, re) => [...new Set([...Object.keys(pl).filter((k) => pl[k] > 0), ...Object.keys(re)])]
-        .map((cat) => ({ cat, c: M.cat(cat), plan: pl[cat] || 0, real: re[cat] || 0 }))
+        .map((cat) => ({ cat, c: M.cat(cat), plan: pl[cat] || 0, real: re[cat] || 0, items: pItems[cat] || [] }))
         .sort((a, b) => (b.plan || b.real) - (a.plan || a.real));
       const tot = (o) => Object.values(o).reduce((a, v) => a + (v || 0), 0);
       return { has: !!pr, inherited: pr && pr.key !== key ? pr.key : null, out: rows(pOut, rOut), inn: rows(pIn, rIn),
@@ -247,10 +269,12 @@
       const pct = r.plan ? Math.min(100, Math.round(r.real / r.plan * 100)) : 100;
       const diff = r.plan - r.real;
       const note = !r.plan ? 'sem planejamento' : income ? (diff > 0 ? `faltam entrar ${brl(diff)}` : 'recebido ✓') : diff >= 0 ? `sobram ${brl(diff)}` : `passou ${brl(-diff)}`;
-      return `<div class="bud-row ${cls}">
+      const items = (r.items || []).filter((it) => it.cents);
+      return `<button class="bud-row ${cls}" data-action="xcat" data-v="${esc(r.cat)}">
         <div class="bud-top"><span>${esc(r.c.emo)} ${esc(r.c.nome)}</span><span><b>${brl(r.real)}</b>${r.plan ? ` <small>de ${brl(r.plan)}</small>` : ''}</span></div>
         <div class="bud-bar"><div style="width:${pct}%"></div></div>
-        <small class="bud-note">${note}</small></div>`;
+        <small class="bud-note">${note} ›</small>
+        ${items.length ? `<span class="bud-items">${items.map((it) => `${esc(it.name)} ${brl(it.cents)}`).join(' · ')}</span>` : ''}</button>`;
     }
     function planCard() {
       const key = M.mkey(S.month);
@@ -361,7 +385,11 @@
           <button class="link" data-action="goContas">${dl.length ? (dl.length > 6 ? `Ver todas (${dl.length}) e cadastrar` : 'Ver todas e cadastrar') : '＋ Cadastrar contas fixas'}</button>
         </section>
         <div class="quick-links"><button class="btn" data-action="goResumo">📈 Resumo e gráficos</button><button class="btn" data-action="goDividas">💸 Dívidas${debts().length ? ` (${debts().length})` : ''}</button>
-          ${subs().length ? '' : '<button class="btn" data-action="goSubs">📺 Assinaturas</button>'}<button class="btn" data-action="goRelatorio">🖨️ Relatório do mês</button></div>
+          ${subs().length ? '' : '<button class="btn" data-action="goSubs">📺 Assinaturas</button>'}<button class="btn" data-action="goRelatorio">🖨️ Relatório do mês</button>
+          <button class="btn" data-action="goCaixinhas">🐷 Caixinhas${goals().length ? ` (${goals().length})` : ''}</button><button class="btn" data-action="goVontades">🛒 Vontade de comprar</button></div>
+        ${(() => { const rw = readyWishes(); if (!rw.length) return '';
+          return `<section class="card wish-banner"><button class="plan-btn" data-action="goVontades"><b>🛒 Passaram 24h: ${esc(rw[0].name)}${rw.length > 1 ? ` e mais ${rw.length - 1}` : ''}</b>
+            <small class="bud-note">Ainda quer? Toque pra decidir.</small></button></section>`; })()}
         ${(() => {
           const us = subs(); if (!us.length) return '';
           const tr = us.filter((u) => trialDays(u) !== null && trialDays(u) <= 7);
@@ -484,7 +512,8 @@
       const ess = M.sum(outL.filter((r) => r.ess !== false));
       const filt = S.xfilter || 'todos';
       const xpay = S.xpay || '';
-      const list = all.filter((r) => (filt === 'todos' || (filt === 'out' ? r.dir === 'out' : r.dir === 'in')) && (!xpay || r.pay === xpay)).sort(sortTx);
+      const xcat = S.xcat || '';
+      const list = all.filter((r) => (filt === 'todos' || (filt === 'out' ? r.dir === 'out' : r.dir === 'in')) && (!xpay || r.pay === xpay) && (!xcat || r.cat === xcat)).sort(sortTx);
       const byPay = M.PAYS.map((p) => ({ ...p, total: M.sum(outL.filter((r) => r.pay === p.id)) }));
       const groups = [];
       list.forEach((r) => { const g = groups[groups.length - 1]; if (g && g.date === r.date) g.items.push(r); else groups.push({ date: r.date, items: [r] }); });
@@ -512,6 +541,7 @@
           </section>` : ''}
           <div class="chips">${btns('xfilter', [['todos', 'Tudo'], ['out', 'Gastos'], ['in', 'Receitas']], filt)}</div>
           ${xpay ? `<p class="small">Mostrando só gastos em <b>${M.pay(xpay).nome}</b>: ${brl(M.sum(list))}</p>` : ''}
+          ${xcat ? `<div class="cat-filter"><span>${esc(M.cat(xcat).emo)} <b>${esc(M.cat(xcat).nome)}</b>: ${list.length} lançamento(s) · ${brl(M.sum(list))}</span><button class="chip sm" data-action="xcat" data-v="">✕ Todas as categorias</button></div>` : ''}
           ${groups.length ? groups.map((g) => `<section class="day"><h4>${M.dayLabel(g.date)}</h4><div class="tx-list">${g.items.map(txRow).join('')}</div></section>`).join('')
             : `<section class="card"><p class="empty">Nenhum lançamento ${filt === 'in' ? 'de receita ' : filt === 'out' ? 'de gasto ' : ''}neste mês.</p></section>`}
         </main>${X.nav('extrato')}</div>`;
@@ -691,9 +721,19 @@
       const val = (c) => c ? (c / 100).toFixed(2).replace('.', ',') : '';
       const row = (dir, c) => {
         const cur = (dir === 'out' ? pe.out : pe.in)[c.id] || 0;
+        const items = pe.items[c.id];
+        if (items) {
+          const sum = items.reduce((a, it) => a + (it.cents || 0), 0);
+          return `<div class="pe-group"><div class="pe-row"><label><span>${esc(c.emo)} ${esc(c.nome)}</span><small>detalhado em ${items.length} item(ns)</small></label><b class="pe-sum">${brl(sum)}</b></div>
+            ${items.map((it, i) => `<div class="pe-item"><input class="field" data-it="${esc(c.id)}" data-i="${i}" data-k="name" maxlength="30" value="${esc(it.name)}" placeholder="Ex.: Aluguel">
+              <input class="field money sm" data-it="${esc(c.id)}" data-i="${i}" data-k="cents" inputmode="decimal" placeholder="0,00" value="${val(it.cents)}">
+              <button class="icon-btn x" data-action="peItemDel" data-cat="${esc(c.id)}" data-i="${i}" aria-label="Tirar item">✕</button></div>`).join('')}
+            <div class="row"><button class="link" data-action="peItemAdd" data-cat="${esc(c.id)}">＋ item</button><button class="link" data-action="peUndetail" data-cat="${esc(c.id)}" data-dir="${dir}">usar valor único</button></div></div>`;
+        }
         const hint = [prevOf(dir === 'out' ? prev.out : prev.inn, c.id) ? `mês passado ${brl(prevOf(dir === 'out' ? prev.out : prev.inn, c.id))}` : '',
           dir === 'out' && billsBy[c.id] ? `contas fixas ${brl(billsBy[c.id])}` : ''].filter(Boolean).join(' · ');
-        return `<div class="pe-row"><label for="pe-${dir}-${esc(c.id)}"><span>${esc(c.emo)} ${esc(c.nome)}</span>${hint ? `<small>${hint}</small>` : ''}</label>
+        return `<div class="pe-row"><label for="pe-${dir}-${esc(c.id)}"><span>${esc(c.emo)} ${esc(c.nome)}</span>${hint ? `<small>${hint}</small>` : ''}
+            ${dir === 'out' ? `<button class="link tiny-link" data-action="peDetail" data-cat="${esc(c.id)}">detalhar em itens</button>` : ''}</label>
           <input class="field money sm" id="pe-${dir}-${esc(c.id)}" data-dir="${dir}" data-cat="${esc(c.id)}" inputmode="decimal" placeholder="0,00" value="${val(cur)}"></div>`;
       };
       return `<div class="page form-page">
@@ -710,7 +750,12 @@
     }
     function readPE() {
       if (!S.pe) return;
-      document.querySelectorAll('.pe-row input').forEach((i) => {
+      document.querySelectorAll('.pe-item input').forEach((i) => {
+        const it = (S.pe.items[i.dataset.it] || [])[Number(i.dataset.i)]; if (!it) return;
+        if (i.dataset.k === 'name') it.name = i.value; else it.cents = M.parseBRL(i.value);
+      });
+      Object.entries(S.pe.items).forEach(([cat, items]) => { const sum = items.reduce((a, it) => a + (it.cents || 0), 0); if (sum) S.pe.out[cat] = sum; else delete S.pe.out[cat]; });
+      document.querySelectorAll('.pe-row input[data-cat]').forEach((i) => {
         const v = M.parseBRL(i.value);
         const o = i.dataset.dir === 'out' ? S.pe.out : S.pe.in;
         if (v) o[i.dataset.cat] = v; else delete o[i.dataset.cat];
@@ -782,7 +827,8 @@
           </section>
           <section class="card"><h3>Gastos por categoria</h3>
             ${slices.length ? `<div class="donut-wrap">${Charts.donut(slices, { big: Charts.brlShort(m.out), small: 'em gastos' })}</div>
-              <div class="legend-list">${slices.map((x) => `<div class="lg-row"><i style="background:${x.color}"></i><span>${esc(x.emo)} ${esc(x.label)}</span><b>${brl(x.value)}</b><small>${Math.round(x.value / m.out * 100)}%</small></div>`).join('')}</div>`
+              <div class="legend-list">${slices.map((x) => `<button class="lg-row" ${x.cat !== '_outros' ? `data-action="xcat" data-v="${esc(x.cat)}"` : 'disabled'}><i style="background:${x.color}"></i><span>${esc(x.emo)} ${esc(x.label)}</span><b>${brl(x.value)}</b><small>${Math.round(x.value / m.out * 100)}% ${x.cat !== '_outros' ? '›' : ''}</small></button>`).join('')}</div>
+              <p class="tiny">Toque numa categoria pra ver os gastos dela.</p>`
               : '<p class="empty">Nenhum gasto neste mês.</p>'}
           </section>
           <section class="card"><h3>Entradas × gastos, mês a mês</h3>
@@ -809,6 +855,254 @@
         </main>${X.nav('extrato')}</div>`;
     }
 
+    /* ---------- caixinhas (metas) e vontade de comprar ---------- */
+    const goals = (all) => S.recs.filter((r) => r.type === 'goal' && (all || !r.doneAt)).sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
+    const goalMoves = (id) => S.recs.filter((r) => r.type === 'goalmv' && r.goalId === id).sort((a, b) => b.date.localeCompare(a.date) || String(b.createdAt).localeCompare(String(a.createdAt)));
+    const savedOf = (g) => goalMoves(g.id).reduce((a, m) => a + m.cents, 0);
+    const pctOf = (g) => g.target ? Math.max(0, Math.min(100, Math.round(savedOf(g) / g.target * 100))) : 0;
+    const monthsBetween = (fromKey, toKey) => (Number(toKey.slice(0, 4)) - Number(fromKey.slice(0, 4))) * 12 + Number(toKey.slice(5)) - Number(fromKey.slice(5));
+    function goalPlan(g) {
+      const left = Math.max(0, g.target - savedOf(g));
+      const nowK = M.mkey(new Date());
+      const thisMonth = goalMoves(g.id).filter((m) => m.date.slice(0, 7) === nowK).reduce((a, m) => a + m.cents, 0);
+      if (!g.deadline) return { left, thisMonth, need: null, months: null, late: false };
+      const months = monthsBetween(nowK, g.deadline) + 1;
+      if (months < 1) return { left, thisMonth, need: null, months: 0, late: left > 0 };
+      return { left, thisMonth, need: Math.ceil(left / months / 100) * 100, months, late: false };
+    }
+    const GOAL_EMOS = ['🛡️', '✈️', '🏖️', '🎄', '🎁', '🏠', '🚗', '📱', '🎓', '💍', '🐶', '💰'];
+    const GOAL_SUG = [['Reserva de emergência', '🛡️'], ['Viagem', '✈️'], ['Natal', '🎄'], ['Celular novo', '📱'], ['Reforma da casa', '🏠']];
+    const TRILHA = {
+      debochado: {
+        s0: 'Caixinha vazia é só cofrinho de enfeite. Bora colocar o primeiro real?',
+        s1: 'Saímos do lugar! Devagar, mas saímos.',
+        s25: 'Um quarto do caminho. Já dá pra se achar um pouquinho.',
+        s50: 'Metade! Agora desistir seria muita falta de vergonha.',
+        s75: 'Falta pouco. Nem pense em mexer nesse dinheiro.',
+        s100: 'CHEGAMOS! Pode comemorar, mas sem gastar tudo de uma vez.',
+        tirou: 'Tirou da caixinha, é? Tô de olho.',
+        late: 'O prazo passou e a meta não. Bora ajustar o prazo ou acelerar?',
+        wishNew: 'Anotado. Se daqui a 24h ainda quiser, a gente conversa.',
+        wishNewNeg: 'Mês no vermelho e você pensando em comprar? Ainda bem que vai esperar 24h.',
+        wishGave: 'Desistiu! Seu bolso mandou um beijo. {v} a salvo.',
+        wishBuy: 'Esperou 24h e ainda quer? Então tá liberado, sem culpa.'
+      },
+      acolhedor: {
+        s0: 'Todo caminho começa com um passinho. Que tal guardar um pouquinho hoje?',
+        s1: 'Primeiro passo dado! Tô orgulhoso de você.',
+        s25: 'Já foi 1/4 do caminho! Continua no seu ritmo.',
+        s50: 'Metade do caminho! Você tá indo muito bem.',
+        s75: 'Quase lá! Só mais um pouquinho.',
+        s100: 'Meta alcançada! Que orgulho de você 💛',
+        tirou: 'Tudo bem precisar. Quando der, a gente volta a guardar.',
+        late: 'O prazo chegou antes da meta. Sem problema: dá pra ajustar a data.',
+        wishNew: 'Combinado: espera 24h e decide com calma.',
+        wishNewNeg: 'O mês tá apertado, então esperar 24h é uma ótima ideia.',
+        wishGave: 'Que escolha bonita! Você guardou {v}.',
+        wishBuy: 'Você pensou com calma, então pode comprar tranquila.'
+      }
+    };
+    const tf = (k, vars) => fill((TRILHA[X.tone(S.cur)] || TRILHA.acolhedor)[k], vars || {});
+    const stageOf = (p) => p >= 100 ? 's100' : p >= 75 ? 's75' : p >= 50 ? 's50' : p >= 25 ? 's25' : p > 0 ? 's1' : 's0';
+    const faceOf = (mood) => Pet.face({ pet: S.cur.pet, acc: S.cur.acc, mood, label: 'Mascote' });
+    // média dos gastos essenciais dos últimos meses com dados (pra sugerir a reserva)
+    function essMonthly() {
+      const byM = {};
+      txs().filter((r) => r.dir === 'out' && (r.ess ?? M.cat(r.cat).ess)).forEach((r) => { const k = r.date.slice(0, 7); byM[k] = (byM[k] || 0) + r.cents; });
+      const ks = Object.keys(byM).sort().slice(-3);
+      return ks.length ? Math.round(ks.reduce((a, k) => a + byM[k], 0) / ks.length) : 0;
+    }
+    function trilhaSVG(p) {
+      const W = 340, H = 120, x0 = 24, x1 = 316;
+      const yAt = (x) => 64 + 30 * Math.sin((x - x0) / (x1 - x0) * Math.PI * 2);
+      const pts = []; for (let x = x0; x <= x1; x += 4) pts.push(`${x},${yAt(x).toFixed(1)}`);
+      const xp = x0 + (x1 - x0) * p / 100;
+      const done = pts.filter((s) => Number(s.split(',')[0]) <= xp);
+      const st = [[0, 'Início'], [25, '1/4'], [50, 'Metade'], [75, '3/4'], [100, '🏁']];
+      return `<div class="trilha"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Trilha: ${p}% da meta">
+          <polyline points="${pts.join(' ')}" class="tr-path"/>
+          ${done.length > 1 ? `<polyline points="${done.join(' ')}" class="tr-done"/>` : ''}
+          ${st.map(([sp, l]) => { const x = x0 + (x1 - x0) * sp / 100, y = yAt(x); return `<circle cx="${x}" cy="${y.toFixed(1)}" r="7" class="tr-st ${p >= sp ? 'on' : ''}"/><text x="${x}" y="${(y + (sp === 25 || sp === 75 ? -14 : 22)).toFixed(1)}" class="tr-l">${l}</text>`; }).join('')}
+        </svg><span class="tr-pet" style="left:${(xp / W * 100).toFixed(1)}%;top:${(yAt(xp) / H * 100).toFixed(1)}%">${faceOf(p >= 100 ? 'feliz' : 'normal')}</span></div>`;
+    }
+    function goalRow(g) {
+      const s = savedOf(g), p = pctOf(g), pl = goalPlan(g);
+      return `<button class="debt-row" data-action="openGoal" data-id="${esc(g.id)}">
+        <div class="bud-top"><span>${esc(g.emo || '💰')} <b>${esc(g.name)}</b></span><span><b>${brl(s)}</b> <small>de ${brl(g.target)}</small></span></div>
+        <div class="bud-row ${p >= 100 ? 'ok' : ''}"><div class="bud-bar"><div style="width:${p}%"></div></div></div>
+        <small class="bud-note">${p}%${g.doneAt ? ' · concluída 🏁' : pl.late ? ' · prazo passou' : pl.need ? ` · guarde ${brl(pl.need)}/mês até ${M.monthName(g.deadline).toLowerCase()}/${g.deadline.slice(2, 4)}` : ' · sem prazo'}</small></button>`;
+    }
+    function vCaixinhas() {
+      const gs = goals(), done = goals(true).filter((g) => g.doneAt);
+      const total = goals(true).reduce((a, g) => a + savedOf(g), 0);
+      const ws = wishes();
+      const gave = ws.filter((w) => w.status === 'gaveup');
+      const em = essMonthly();
+      return `<div class="page">
+        <header class="topbar"><button class="icon-btn" data-action="cxBack">‹ Voltar</button><div class="who"><small>Guardar dinheiro</small><b>Caixinhas</b></div></header>
+        <main class="content">
+          <section class="card total"><span>Guardado nas caixinhas</span><strong>${brl(total)}</strong>
+            <span class="sub">${gs.length} caixinha(s) em andamento${done.length ? ` · ${done.length} concluída(s) 🏁` : ''}</span>
+            ${gave.length ? `<span class="sub">🛒 Desistindo de compras você já poupou ${brl(gave.reduce((a, w) => a + w.cents, 0))}</span>` : ''}</section>
+          ${gs.length ? `<section class="card"><h3>Em andamento</h3>${gs.map(goalRow).join('')}</section>`
+            : done.length ? `<section class="card guide"><div class="guide-pet">${faceOf('feliz')}</div><div><b>Nenhuma caixinha em andamento</b><p>Já bateu ${done.length} meta(s)! Bora pra próxima?</p></div></section>`
+            : `<section class="card guide"><div class="guide-pet">${faceOf('feliz')}</div><div><b>Comece pela reserva de emergência</b>
+              <p>${em ? `É o dinheiro pra imprevisto. Uma boa meta é 3 meses dos seus gastos essenciais: uns <b>${brl(em * 3)}</b>.` : 'É o dinheiro pra imprevisto. Uma boa meta é guardar 3 meses dos gastos essenciais da casa.'}</p>
+              <button class="btn primary" data-action="newGoal" data-sug="Reserva de emergência" data-emo="🛡️" data-target="${em * 3}">Criar reserva</button></div></section>`}
+          <button class="btn wide" data-action="newGoal">＋ Nova caixinha</button>
+          ${done.length ? `<section class="card soft"><h3>Concluídas 🏁</h3>${done.map(goalRow).join('')}</section>` : ''}
+          <p class="tiny">Caixinha aqui é uma anotação: o dinheiro de verdade fica onde você guardar (poupança, caixinha do banco…). Guardar não conta como gasto.</p>
+        </main>${X.nav('mais')}</div>`;
+    }
+    function vCaixa() {
+      const g = S.recs.find((r) => r.id === S.gid && r.type === 'goal'); if (!g) return vCaixinhas();
+      const s = savedOf(g), p = pctOf(g), pl = goalPlan(g);
+      const fala = S.gFala || (pl.late ? tf('late') : tf(stageOf(p)));
+      const mv = goalMoves(g.id);
+      return `<div class="page">
+        <header class="topbar"><button class="icon-btn" data-action="gBack">‹ Voltar</button><div class="who"><small>Caixinha</small><b>${esc(g.emo || '💰')} ${esc(g.name)}</b></div>
+          <button class="icon-btn" data-action="editGoal">Editar</button></header>
+        <main class="content">
+          <section class="card">${trilhaSVG(p)}<p class="tr-fala">${esc(fala)}</p></section>
+          <section class="card total"><span>${p}% da meta</span><strong>${brl(s)}</strong><span class="sub">de ${brl(g.target)} · faltam ${brl(pl.left)}</span>
+            ${pl.need ? `<span class="sub">Pra chegar até ${M.monthName(g.deadline).toLowerCase()} de ${g.deadline.slice(0, 4)}: guarde <b>${brl(pl.need)}</b> por mês (${pl.months} ${pl.months > 1 ? 'meses' : 'mês'})</span>
+              <span class="sub">Este mês: ${brl(pl.thisMonth)} ${pl.thisMonth >= pl.need ? '✓ já deu o do mês' : `· falta ${brl(pl.need - pl.thisMonth)}`}</span>` : ''}
+            ${pl.late ? '<span class="sub">⏰ O prazo passou. Toque em Editar pra escolher uma data nova.</span>' : ''}</section>
+          <div class="add-row"><button class="btn primary big-add" data-action="gMove" data-v="1">＋ Guardar</button><button class="btn big-add" data-action="gMove" data-v="-1" ${s ? '' : 'disabled'}>− Tirar</button></div>
+          <section class="card"><h3>Histórico</h3>${mv.length ? mv.map((m) => `<div class="hist-row"><span>${M.shortDate(M.parse(m.date))}${m.note ? ` <small>· ${esc(m.note)}</small>` : ''}</span>
+            <b class="${m.cents < 0 ? 'neg' : 'pos'}">${m.cents < 0 ? '−' : '+'}${brl(Math.abs(m.cents))}</b><button class="icon-btn x" data-action="gMoveDel" data-id="${esc(m.id)}" aria-label="Apagar movimento">✕</button></div>`).join('') : '<p class="empty">Nada guardado ainda.</p>'}</section>
+        </main>${X.nav('mais')}</div>`;
+    }
+    function vCaixaForm() {
+      const g = S.g;
+      const v = (c) => c ? (c / 100).toFixed(2).replace('.', ',') : '';
+      return `<div class="page form-page">
+        <header class="topbar"><button class="icon-btn" data-action="gfBack">‹ Voltar</button><div class="who"><b>${g.id ? 'Editar' : 'Nova'} caixinha</b></div></header>
+        <main class="content">
+          ${g.id ? '' : `<div class="chips">${GOAL_SUG.map(([n, e]) => `<button class="chip" data-action="gsug" data-v="${esc(n)}" data-emo="${e}">${e} ${esc(n)}</button>`).join('')}</div>`}
+          <label class="lbl" for="gname">Pra quê?</label><input class="field" id="gname" maxlength="30" value="${esc(g.name)}" placeholder="Ex.: Viagem de férias">
+          <label class="lbl">Desenho</label><div class="chips emo-chips">${GOAL_EMOS.map((e) => `<button class="chip ${g.emo === e ? 'on' : ''}" data-action="gemo" data-v="${e}">${e}</button>`).join('')}</div>
+          <label class="lbl" for="gtarget">Meta (quanto quer juntar)</label><input class="field money" id="gtarget" inputmode="decimal" placeholder="Ex.: 3.000,00" value="${v(g.target)}">
+          <label class="lbl" for="gdead">Prazo (opcional)</label><input class="field" id="gdead" type="month" value="${esc(g.deadline || '')}" min="${M.mkey(new Date())}">
+          <p class="tiny">Com prazo, o mascote calcula quanto guardar por mês.</p>
+          ${g.id ? '' : `<label class="lbl" for="gstart">Já tem algo guardado pra isso? (opcional)</label><input class="field money" id="gstart" inputmode="decimal" placeholder="0,00" value="${v(g.start)}">`}
+          <button class="btn primary wide big-save" data-action="gsave">Salvar</button>
+          ${g.id ? '<button class="btn danger wide" data-action="gdel">Apagar caixinha</button>' : ''}
+        </main></div>`;
+    }
+    function readG() {
+      if (!S.g) return;
+      const n = document.getElementById('gname'); if (n) S.g.name = n.value;
+      const t = document.getElementById('gtarget'); if (t) S.g.target = M.parseBRL(t.value);
+      const d = document.getElementById('gdead'); if (d) S.g.deadline = d.value || null;
+      const s0 = document.getElementById('gstart'); if (s0) S.g.start = M.parseBRL(s0.value);
+    }
+    const snapG = (g) => JSON.stringify([g.name.trim(), g.emo, g.target, g.deadline || null, g.start || 0]);
+
+    const WAIT_MS = 24 * 3600 * 1000;
+    const wishes = () => S.recs.filter((r) => r.type === 'wish').sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+    const wishReady = (w) => w.status === 'wait' && Date.now() >= new Date(w.until).getTime();
+    const readyWishes = () => wishes().filter(wishReady);
+    function leftLabel(w) {
+      const ms = new Date(w.until).getTime() - Date.now();
+      const h = Math.floor(ms / 3600000), m = Math.max(1, Math.round((ms % 3600000) / 60000));
+      return h >= 1 ? `faltam ${h}h${m >= 5 && h < 6 ? String(m).padStart(2, '0') : ''}` : `faltam ${m} min`;
+    }
+    function vVontades() {
+      const ws = wishes(), wait = ws.filter((w) => w.status === 'wait');
+      const gave = ws.filter((w) => w.status === 'gaveup'), bought = ws.filter((w) => w.status === 'bought');
+      const cs = M.cats('out');
+      return `<div class="page">
+        <header class="topbar"><button class="icon-btn" data-action="vtBack">‹ Voltar</button><div class="who"><small>Espera 24h antes de comprar</small><b>Vontade de comprar</b></div></header>
+        <main class="content">
+          <section class="card guide"><div class="guide-pet">${faceOf('normal')}</div><div><b>Bateu vontade?</b><p>Anota aqui e espera 24 horas. Se depois ainda quiser, compra sem culpa. Se a vontade passar, o dinheiro fica com você.</p></div></section>
+          <section class="card">
+            <label class="lbl" for="wname">O que você quer comprar?</label><input class="field" id="wname" maxlength="40" placeholder="Ex.: tênis novo" value="${esc((S.wf || {}).name || '')}">
+            <label class="lbl" for="wval">Quanto custa?</label><input class="field money" id="wval" inputmode="decimal" placeholder="Ex.: 250,00" value="${(S.wf || {}).cents ? ((S.wf.cents) / 100).toFixed(2).replace('.', ',') : ''}">
+            <label class="lbl" for="wcat">Categoria (opcional)</label><select class="field" id="wcat"><option value="">—</option>${cs.map((c) => `<option value="${esc(c.id)}" ${(S.wf || {}).cat === c.id ? 'selected' : ''}>${esc(c.emo)} ${esc(c.nome)}</option>`).join('')}</select>
+            <button class="btn primary wide" data-action="wishAdd">⏳ Esperar 24h</button>
+          </section>
+          ${wait.length ? `<section class="card"><h3>Esperando</h3>${wait.map((w) => wishReady(w)
+            ? `<div class="wish ready"><div class="bud-top"><span>🛒 <b>${esc(w.name)}</b></span><b>${brl(w.cents)}</b></div>
+                <p class="small">Já passaram 24h. <b>Ainda quer?</b></p>
+                <div class="wish-btns"><button class="btn primary" data-action="wishBuy" data-id="${esc(w.id)}">Ainda quero</button><button class="btn" data-action="wishGive" data-id="${esc(w.id)}">Desisti 🎉</button><button class="link" data-action="wishMore" data-id="${esc(w.id)}">esperar mais 24h</button></div></div>`
+            : `<div class="wish"><div class="bud-top"><span>⏳ <b>${esc(w.name)}</b></span><b>${brl(w.cents)}</b></div>
+                <small class="bud-note">${leftLabel(w)} · decide ${new Date(w.until).toLocaleString('pt-BR', { weekday: 'short', hour: '2-digit', minute: '2-digit' })}</small>
+                <div class="wish-btns"><button class="link" data-action="wishIcs" data-id="${esc(w.id)}">📅 Lembrete no Google Agenda</button><button class="link" data-action="wishGive" data-id="${esc(w.id)}">já desisti</button><button class="link" data-action="wishDel" data-id="${esc(w.id)}">apagar</button></div></div>`).join('')}</section>` : ''}
+          ${gave.length || bought.length ? `<section class="card soft"><h3>Como foi</h3>
+            <p class="small">Desistiu de <b>${gave.length}</b> compra(s) e poupou <b>${brl(gave.reduce((a, w) => a + w.cents, 0))}</b> · comprou ${bought.length} depois de pensar</p>
+            ${ws.filter((w) => w.status !== 'wait').slice(0, 10).map((w) => `<div class="hist-row"><span>${w.status === 'gaveup' ? '🎉' : '🛍️'} ${esc(w.name)} <small>· ${w.status === 'gaveup' ? 'desistiu' : 'comprou'}</small></span><b>${brl(w.cents)}</b></div>`).join('')}</section>` : ''}
+          <p class="tiny">O app não manda notificação com ele fechado (não tem servidor). Pra ser avisada, use o 📅 Lembrete; ou abra o app depois de 24h que ele pergunta.</p>
+        </main>${X.nav('mais')}</div>`;
+    }
+    function wishIcsText(w) {
+      const pad = (n) => String(n).padStart(2, '0');
+      const d = new Date(w.until);
+      const dt = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}T${pad(d.getHours())}${pad(d.getMinutes())}00`;
+      const e = new Date(d.getTime() + 15 * 60000);
+      const de = `${e.getFullYear()}${pad(e.getMonth() + 1)}${pad(e.getDate())}T${pad(e.getHours())}${pad(e.getMinutes())}00`;
+      const escI = (t) => String(t).replace(/\\/g, '\\\\').replace(/[,;]/g, (m) => '\\' + m).replace(/\n/g, '\\n');
+      const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '');
+      return ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Financas da Casa//PT-BR', 'BEGIN:VEVENT', `UID:${w.id}@financas-da-casa`, `DTSTAMP:${stamp}`,
+        `DTSTART:${dt}`, `DTEND:${de}`, `SUMMARY:${escI(`Ainda quer comprar ${w.name}? (${brl(w.cents)})`)}`,
+        `DESCRIPTION:${escI('Já passaram 24h. Abra o Finanças da Casa → Vontade de comprar e decida.')}`,
+        'BEGIN:VALARM', 'ACTION:DISPLAY', 'DESCRIPTION:Vontade de comprar', 'TRIGGER:PT0M', 'END:VALARM', 'END:VEVENT', 'END:VCALENDAR'].join('\r\n') + '\r\n';
+    }
+    async function addGoalMove(goalId, cents, note) {
+      await put({ id: Sec.uid(), type: 'goalmv', goalId, cents, date: today(), note: note || '', createdAt: new Date().toISOString() });
+      const g = S.recs.find((r) => r.id === goalId);
+      if (g && !g.doneAt && savedOf(g) >= g.target) { g.doneAt = new Date().toISOString(); await put(g); return 'done'; }
+      if (g && g.doneAt && savedOf(g) < g.target) { g.doneAt = null; await put(g); }
+      return '';
+    }
+
+    /* ---------- menu "Mais": todas as funções + busca + ajuda ---------- */
+    const FEATURES = [
+      ['goContas', '🧾', 'Contas do mês', 'Checklist de aluguel, luz, água, faturas; marcar como paga', 'contas fixas checklist vencimento luz agua aluguel falta pagar'],
+      ['goPlan', '📊', 'Orçamento', 'Esperado × real por categoria, entradas e gastos', 'planejar planejamento limite meta categoria esperado'],
+      ['goResumo', '📈', 'Resumo e gráficos', 'Rosca por categoria, mês a mês, contas em dia', 'grafico pizza rosca resumo historico comparacao'],
+      ['goRelatorio', '🖨️', 'Relatório do mês', 'Imprimir, salvar PDF ou mandar resumo no WhatsApp', 'relatorio pdf imprimir whatsapp compartilhar'],
+      ['goDividas', '💸', 'Dívidas', 'Empréstimos, contas parceladas, acordos e plano pra quitar', 'divida emprestimo parcelado carne crediario acordo quitar'],
+      ['goCaixinhas', '🐷', 'Caixinhas', 'Metas pra guardar dinheiro com prazo e trilha', 'caixinha meta guardar poupar reserva emergencia objetivo economizar'],
+      ['goVontades', '🛒', 'Vontade de comprar', 'Anota, espera 24h e decide com calma', 'vontade comprar desejo impulso 24h esperar compra'],
+      ['goSubs', '📺', 'Assinaturas', 'Netflix, Spotify… total por mês e por ano, teste grátis', 'assinatura streaming netflix spotify teste gratis'],
+      ['tab:carteira', '💳', 'Carteira', 'Contas, cartões e faturas; gastos por Pix, débito…', 'cartao fatura conta banco pix debito credito dinheiro'],
+      ['tab:extrato', '☰', 'Extrato', 'Todos os lançamentos do mês, filtros', 'extrato lancamentos gastos receitas lista'],
+      ['tab:settings', '⚙️', 'Ajustes', 'Mascote, letra, tema, senha, backup, perfis, cadernos', 'ajustes configuracoes senha backup mascote tema letra perfil caderno']
+    ];
+    const FAQ = [
+      ['Como lanço um gasto?', 'Toque no ＋ do meio da barra de baixo, digite o valor, escolha a categoria e a forma de pagamento e toque em Salvar.'],
+      ['Onde fica o relatório do mês?', 'Aqui no Mais → Relatório do mês, ou no Início/Resumo. Dá pra imprimir, salvar PDF ou mandar resumo.'],
+      ['Compra parcelada no cartão vai em Dívidas?', 'Não. Lance como gasto no Crédito com as parcelas: ela já entra nas faturas. Em Dívidas vão empréstimos, carnês/crediário e acordos.'],
+      ['Dívida eu lanço como gasto?', 'Não. Cadastre em Dívidas. Cada parcela que você marcar como paga vira um gasto sozinha.'],
+      ['Como faço backup?', 'Mais → Ajustes → Backup → Salvar backup no celular (ou Enviar pro Drive/WhatsApp). Faça pelo menos uma vez por mês.'],
+      ['Os celulares sincronizam?', 'Não. Cada celular guarda os próprios dados, sem internet. Pra levar pra outro celular, use backup e restaurar.'],
+      ['Como recebo lembrete das contas?', 'Contas do mês → Mandar pro Google Agenda. Ele avisa 3 dias antes e no dia, mesmo com o app fechado.'],
+      ['Guardar na caixinha conta como gasto?', 'Não. A caixinha é só uma anotação de quanto você separou pra uma meta. O dinheiro de verdade fica onde você guardar.'],
+      ['Como funciona a vontade de comprar?', 'Anote o que quer e o preço. Depois de 24h o app pergunta se ainda quer. Se desistir, o valor entra no "poupado" e pode ir pra uma caixinha.'],
+      ['Esqueci a senha. E agora?', 'Na tela da senha, toque em "Esqueci a senha" e use o código de recuperação que apareceu quando a senha foi criada.']
+    ];
+    function vMais() {
+      return `<div class="page">
+        <header class="topbar"><div class="who"><small>Tudo do app</small><b>Mais</b></div></header>
+        <main class="content">
+          <input class="field search" id="busca" type="search" placeholder="🔎 Buscar: relatório, dívida, backup…" autocomplete="off" aria-label="Buscar função ou ajuda">
+          <section class="card" id="feat-list">${FEATURES.map(([act, emo, t, d, kw]) => {
+            const [a, v] = act.split(':');
+            return `<button class="w-row feat" data-action="${a}" ${v ? `data-v="${v}"` : ''} data-kw="${esc((t + ' ' + d + ' ' + kw).toLowerCase())}"><span class="w-ico">${emo}</span><span class="tx-mid"><b>${t}</b><small>${d}</small></span><span class="chev">›</span></button>`;
+          }).join('')}<p class="empty none-found" hidden>Nada encontrado nas funções. Veja a ajuda abaixo.</p></section>
+          <section class="card" id="faq"><h3>Ajuda rápida</h3>${FAQ.map(([q, a]) => `<details class="faq" data-kw="${esc((q + ' ' + a).toLowerCase())}"><summary>${q}</summary><p>${a}</p></details>`).join('')}</section>
+        </main>${X.nav('mais')}</div>`;
+    }
+    function filterMais(q) {
+      const n = q.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+      const norm = (t) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      let shown = 0;
+      document.querySelectorAll('.feat').forEach((el) => { const ok = !n || norm(el.dataset.kw).includes(n); el.hidden = !ok; if (ok) shown++; });
+      document.querySelectorAll('.faq').forEach((el) => { const ok = !n || norm(el.dataset.kw).includes(n); el.hidden = !ok; if (ok && n) el.open = true; });
+      const nf = document.querySelector('.none-found'); if (nf) nf.hidden = shown > 0;
+    }
+
     /* ---------- telas de dívidas ---------- */
     function vDividas() {
       const ds = debts(), dsAll = debts(true);
@@ -831,17 +1125,27 @@
             <span class="sub">${ds.length ? `${brl(mensal)} por mês em parcelas · ${ds.length} dívida(s)` : quit.length ? `${quit.length} dívida(s) quitada(s) 🎉` : 'Que maravilha!'}</span>
             ${dias !== null ? `<span class="bal">🏅 <b>${dias}</b> dia${dias === 1 ? '' : 's'} sem dívida nova</span>` : ''}
           </section>
-          <section class="card"><h3>Minhas dívidas</h3>
-            ${ds.length ? ds.map((d) => {
+          ${(() => {
+            const row = (d) => {
               const pct = Math.round(d.pagas / d.total * 100);
               const paid = debtPaidIn(d, key);
               return `<button class="debt-row" data-action="openDebt" data-id="${esc(d.id)}">
                 <div class="bud-top"><span>${esc(d.emo || '💸')} <b>${esc(d.name)}</b>${d.creditor ? ` <small>· ${esc(d.creditor)}</small>` : ''}</span><span><b>${brl(saldoDe(d))}</b></span></div>
                 <div class="bud-row ${pct >= 80 ? 'ok' : ''}"><div class="bud-bar"><div style="width:${pct}%"></div></div></div>
                 <small class="bud-note">${d.pagas} de ${d.total} parcelas pagas (${pct}%) · parcela ${brl(d.parcela)}${d.juros ? ` · juros ${String(d.juros).replace('.', ',')}% a.m.` : ''} · ${paid ? 'paga este mês ✓' : `vence dia ${d.dueDay}`}</small></button>`;
-            }).join('') : '<p class="empty">Cartão parcelado não precisa vir aqui (ele já está na fatura). Aqui entram empréstimos, acordos, financiamentos, carnês…</p>'}
-            <button class="btn wide" data-action="newDebt">＋ Nova dívida</button>
-          </section>
+            };
+            const groups = DEBT_KINDS.map(([k, emo, title]) => ({ k, emo, title, list: ds.filter((d) => (d.kind || 'emprestimo') === k) })).filter((g) => g.list.length);
+            return (groups.length ? groups.map((g) => `<section class="card"><h3>${g.emo} ${g.title}</h3>${g.list.map(row).join('')}
+                <small class="bud-note">Total: ${brl(g.list.reduce((a, d) => a + saldoDe(d), 0))} · ${brl(g.list.reduce((a, d) => a + d.parcela, 0))}/mês</small></section>`).join('')
+              : '<section class="card"><h3>Minhas dívidas</h3><p class="empty">Aqui entram empréstimos, contas parceladas fora do cartão (carnê, crediário) e acordos. Compra parcelada no cartão não: ela já está na fatura.</p></section>')
+              + '<button class="btn wide" data-action="newDebt">＋ Nova dívida</button>';
+          })()}
+          ${(() => {
+            const ci = cardInstallments(); if (!ci.length) return '';
+            return `<section class="card soft"><h3>💳 Parcelados no cartão <small class="tiny">(só pra consulta)</small></h3>
+              ${ci.map((c) => `<div class="hist-row"><span>${esc(c.name)} <small>· ${esc(c.card)} · faltam ${c.left} de ${c.total}</small></span><b>${brl(c.parcela)}/mês</b></div>`).join('')}
+              <p class="tiny">Ainda falta ${brl(ci.reduce((a, c) => a + c.parcela * c.left, 0))} no total. Isso já está nas faturas, por isso não soma no "Você ainda deve".</p></section>`;
+          })()}
           ${ds.length > 0 ? `<section class="card"><h3>Plano pra quitar</h3>
             <div class="seg">${btns('debtMode', [['menor', 'Menor primeiro'], ['juros', 'Maior juros primeiro']], mode, '')}</div>
             <p class="tiny">${mode === 'menor' ? 'Bola de neve: quita a menor primeiro, ganha ânimo e o valor da parcela livre vai pra próxima.' : 'Avalanche: ataca a de juros mais altos primeiro e paga menos juros no total.'}</p>
@@ -895,6 +1199,8 @@
       return `<div class="page form-page">
         <header class="topbar"><button class="icon-btn" data-action="dBack">‹ Voltar</button><div class="who"><b>${d.id ? 'Editar' : 'Nova'} dívida</b></div></header>
         <main class="content"><section class="card">
+          <label class="lbl">Tipo</label>
+          <div class="seg col3">${btns('dkind', DEBT_KINDS.map(([k, e, t]) => [k, `${e} ${t.split(' (')[0].replace(' e financiamentos', '').replace(' e renegociações', '')}`]), d.kind || 'emprestimo', '')}</div>
           <label class="lbl" for="dname">O que é?</label><input class="field" id="dname" maxlength="30" value="${esc(d.name)}" placeholder="Ex.: Empréstimo, acordo do cartão">
           <label class="lbl" for="dcred">Com quem? <span class="tiny">(opcional)</span></label><input class="field" id="dcred" maxlength="30" value="${esc(d.creditor || '')}" placeholder="Ex.: Banco, loja, parente">
           <label class="lbl" for="dparc">Valor da parcela</label><input class="field money" id="dparc" inputmode="decimal" placeholder="Ex.: 250,00" value="${v(d.parcela)}">
@@ -928,7 +1234,7 @@
       if (g('ddue')) S.d.dueDay = Number(g('ddue').value);
       if (g('dsaldo')) S.d.saldo = M.parseBRL(g('dsaldo').value) || null;
     }
-    const snapD = (d) => JSON.stringify([d.name.trim(), d.creditor, d.parcela, d.total, d.pagas, d.juros, d.dueDay, d.saldo, d.isNew]);
+    const snapD = (d) => JSON.stringify([d.kind, d.name.trim(), d.creditor, d.parcela, d.total, d.pagas, d.juros, d.dueDay, d.saldo, d.isNew]);
 
     /* ---------- relatório mensal (pra imprimir/PDF ou mandar) ---------- */
     function vRelatorio() {
@@ -1426,6 +1732,7 @@
         await put(rec);
         if (rec.dir === 'out') { S.cur.prefs.lastPay = rec.pay; S.cur.prefs.lastWallet = rec.wallet; await X.save(S.cur); }
         const wasEdit = !!f.id;
+        if (f.wishId) { const w = S.recs.find((x) => x.id === f.wishId); if (w) { w.status = 'bought'; w.decidedAt = new Date().toISOString(); w.txId = rec.id; await put(w); } }
         S.f = null;
         S.month = new Date(M.parse(rec.date).getFullYear(), M.parse(rec.date).getMonth(), 1);
         if (wasEdit) { goBackTo(S.lancReturn); X.toast('Lançamento atualizado.'); return; }
@@ -1449,10 +1756,118 @@
         X.toast(X.catFala(X.tone(S.cur), 'apagado'));
       },
       xfilter(d) { S.xfilter = d.v; if (d.v === 'in') S.xpay = ''; X.render(); },
+      xcat(d) { S.xcat = d.v; if (d.v) { S.xfilter = 'todos'; S.xpay = ''; } X.go('extrato'); },
       xpay(d) { S.xpay = S.xpay === d.v ? '' : d.v; if (S.xpay) S.xfilter = 'out'; X.render(); },
       openWallet(d) { S.wd = d.id; S.fk = null; S.wdReturn = 'carteira'; X.go('wdetail'); },
       goContas() { X.go('contas'); },
       goDividas() { X.go('dividas'); },
+      goCaixinhas() { S.cxReturn = S.view === 'caixa' ? S.cxReturn : S.view; X.go('caixinhas'); },
+      cxBack() { X.go(['home', 'mais'].includes(S.cxReturn) ? S.cxReturn : 'home'); },
+      openGoal(d) { S.gid = d.id; S.gFala = null; X.go('caixa'); },
+      gBack() { S.gFala = null; X.go('caixinhas'); },
+      newGoal(d) {
+        S.g = { id: null, name: d.sug || '', emo: d.emo || '💰', target: Number(d.target) || 0, deadline: null, start: 0 };
+        S.g0 = snapG({ ...S.g, name: '', emo: '💰', target: 0 }); S.gRet = 'caixinhas'; X.go('caixaform');
+      },
+      editGoal() { const g = S.recs.find((r) => r.id === S.gid); if (!g) return; S.g = { ...g }; S.g0 = snapG(S.g); S.gRet = 'caixa'; X.go('caixaform'); },
+      gsug(d) { readG(); S.g.name = d.v; S.g.emo = d.emo; X.render(); },
+      gemo(d) { readG(); S.g.emo = d.v; X.render(); },
+      async gfBack() { readG(); if (!(await leave(snapG(S.g) !== S.g0, 'nesta caixinha'))) return; S.g = null; X.go(S.gRet || 'caixinhas'); },
+      async gsave() {
+        readG(); const g = S.g;
+        if (!g.name.trim()) return X.toast('Dê um nome, tipo "Viagem".');
+        if (!g.target) return X.toast('Coloque quanto quer juntar.');
+        const rec = { id: g.id || Sec.uid(), type: 'goal', name: g.name.trim().slice(0, 30), emo: g.emo || '💰', target: g.target, deadline: g.deadline || null,
+          createdAt: g.createdAt || new Date().toISOString(), doneAt: g.doneAt || null };
+        await put(rec);
+        if (!g.id && g.start) await addGoalMove(rec.id, g.start, 'já tinha guardado');
+        const cur = S.recs.find((r) => r.id === rec.id);
+        if (cur.doneAt && savedOf(cur) < cur.target) { cur.doneAt = null; await put(cur); }
+        if (!cur.doneAt && savedOf(cur) >= cur.target && savedOf(cur) > 0) { cur.doneAt = new Date().toISOString(); await put(cur); }
+        S.g = null; S.gid = rec.id; S.gFala = null; X.go('caixa'); X.toast(g.id ? 'Caixinha atualizada.' : 'Caixinha criada!');
+      },
+      async gdel() {
+        const n = goalMoves(S.g.id).length;
+        const ok = await X.modal({ title: `Apagar "${esc(S.g.name)}"?`, html: `<p>Apaga a caixinha e ${n} movimento(s) anotados. O dinheiro de verdade não some, é só a anotação.</p>`,
+          buttons: [X.CANCEL, { label: 'Apagar', value: true, kind: 'danger' }] });
+        if (!ok) return;
+        for (const m of goalMoves(S.g.id)) await del(m.id);
+        await del(S.g.id); S.g = null; S.gid = null; X.go('caixinhas');
+      },
+      async gMove(d) {
+        const g = S.recs.find((r) => r.id === S.gid); if (!g) return;
+        const add = d.v === '1';
+        const r = await X.modal({ title: add ? `Guardar em ${esc(g.name)}` : `Tirar de ${esc(g.name)}`, html: add ? '<p>Quanto você separou?</p>' : `<p>Tem ${brl(savedOf(g))} guardado. Quanto vai tirar?</p>`,
+          input: 'Ex.: 50,00', buttons: [X.CANCEL, { label: add ? 'Guardar' : 'Tirar', value: true, kind: 'primary' }] });
+        if (!r || !r.value) return;
+        let c = M.parseBRL(r.text || '');
+        if (!c) return X.toast('Digite um valor, tipo 50,00.');
+        if (!add) c = -Math.min(c, savedOf(g));
+        const before = pctOf(g);
+        const res = await addGoalMove(g.id, c, '');
+        const after = pctOf(g);
+        if (!add) S.gFala = tf('tirou');
+        else if (res === 'done' || after >= 100) { S.gFala = tf('s100'); X.celebrate(); }
+        else if (stageOf(after) !== stageOf(before)) { S.gFala = tf(stageOf(after)); if (after >= 25) X.celebrate(); }
+        else S.gFala = null;
+        X.render(); X.toast(add ? `${brl(c)} guardado.` : `${brl(-c)} tirado.`);
+      },
+      async gMoveDel(d) {
+        const ok = await X.modal({ title: 'Apagar esse movimento?', html: '<p>Só a anotação. Use se lançou errado.</p>', buttons: [X.CANCEL, { label: 'Apagar', value: true, kind: 'danger' }] });
+        if (!ok) return;
+        await del(d.id);
+        const g = S.recs.find((r) => r.id === S.gid);
+        if (g && g.doneAt && savedOf(g) < g.target) { g.doneAt = null; await put(g); }
+        S.gFala = null; X.render();
+      },
+      goVontades() { S.vtReturn = S.view; X.go('vontades'); },
+      vtBack() { S.wf = null; X.go(['home', 'mais'].includes(S.vtReturn) ? S.vtReturn : 'home'); },
+      async wishAdd() {
+        const name = (document.getElementById('wname').value || '').trim();
+        const cents = M.parseBRL(document.getElementById('wval').value || '');
+        const cat = document.getElementById('wcat').value || null;
+        S.wf = { name, cents, cat };
+        if (!name) return X.toast('Diga o que quer comprar.');
+        if (!cents) return X.toast('Coloque quanto custa.');
+        const now = new Date();
+        await put({ id: Sec.uid(), type: 'wish', name: name.slice(0, 40), cents, cat, status: 'wait', createdAt: now.toISOString(), until: new Date(now.getTime() + WAIT_MS).toISOString() });
+        const all = monthTx(); const bal = M.sum(all.filter((r) => r.dir === 'in')) - M.sum(all.filter((r) => r.dir === 'out'));
+        S.wf = null; X.render(); X.toast(tf(bal < 0 ? 'wishNewNeg' : 'wishNew'));
+      },
+      async wishMore(d) { const w = S.recs.find((r) => r.id === d.id); if (!w) return; w.until = new Date(Date.now() + WAIT_MS).toISOString(); await put(w); X.render(); X.toast('Mais 24h. Sem pressa.'); },
+      async wishDel(d) { await del(d.id); X.render(); },
+      async wishGive(d) {
+        const w = S.recs.find((r) => r.id === d.id); if (!w) return;
+        w.status = 'gaveup'; w.decidedAt = new Date().toISOString(); await put(w);
+        const gs = goals();
+        let msg = tf('wishGave', { v: brl(w.cents) });
+        if (gs.length) {
+          const pick = await X.modal({ title: `Mandar ${brl(w.cents)} pra uma caixinha?`, html: '<p>Se você separar esse dinheiro de verdade, anote aqui:</p>',
+            buttons: [...gs.slice(0, 4).map((g) => ({ label: `${g.emo || '💰'} ${esc(g.name)}`, value: g.id })), { label: 'Agora não', value: false }] });
+          if (pick) { w.goalId = pick; await put(w); const res = await addGoalMove(pick, w.cents, `desisti de: ${w.name}`); msg += res === 'done' ? ' E a caixinha bateu a meta! 🏁' : ' Foi pra caixinha 🐷'; }
+        }
+        X.render(); X.celebrate(); X.toast(msg);
+      },
+      wishBuy(d) {
+        const w = S.recs.find((r) => r.id === d.id); if (!w) return;
+        S.lancReturn = 'vontades'; S.f = newForm('out'); S.f0 = null;
+        S.f.cents = w.cents; S.f.cat = w.cat || null; S.f.desc = w.name; S.f.wishId = w.id;
+        X.go('lancar'); X.toast(tf('wishBuy'));
+      },
+      async wishIcs(d) {
+        const w = S.recs.find((r) => r.id === d.id); if (!w) return;
+        const file = new File([wishIcsText(w)], `vontade-${w.name.toLowerCase().normalize('NFD').replace(/[^a-z0-9]+/g, '-').slice(0, 20)}.ics`, { type: 'text/calendar' });
+        let shared = false;
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          try { await navigator.share({ files: [file], title: 'Lembrete: vontade de comprar' }); shared = true; } catch (e) { if (e.name === 'AbortError') return; }
+        }
+        if (!shared) {
+          const url = URL.createObjectURL(file); const a = document.createElement('a'); a.href = url; a.download = file.name; document.body.append(a); a.click(); a.remove();
+          setTimeout(() => URL.revokeObjectURL(url), 4000);
+        }
+        await X.modal({ title: 'Lembrete criado', html: '<p>Abra o arquivo <b>.ics</b> (fica em Downloads ou no compartilhar) com o <b>Google Agenda</b> e toque em Salvar. Ele avisa quando passarem as 24h.</p><p class="tiny">Se o celular não abrir direto: calendar.google.com → ⚙ Configurações → Importar e exportar.</p>',
+          buttons: [{ label: 'Entendi', value: true, kind: 'primary' }] });
+      },
       goRelatorio() { S.repReturn = S.view; X.go('relatorio'); },
       repBack() { X.go(['resumo', 'home', 'extrato'].includes(S.repReturn) ? S.repReturn : 'home'); },
       repPrint() { try { window.print(); } catch (e) { X.toast('Não consegui abrir a impressão neste celular.'); } },
@@ -1495,9 +1910,10 @@
         await put({ ...d, negs: (d.negs || []).concat([{ date: new Date().toISOString(), text: r.text.trim().slice(0, 300) }]) });
         X.render(); X.toast('Negociação anotada.');
       },
-      newDebt() { S.d = { id: null, name: '', creditor: '', parcela: 0, total: 0, pagas: 0, juros: null, dueDay: 10, saldo: null, isNew: false }; S.d0 = snapD(S.d); S.dReturn = S.view; X.go('debtform'); },
+      newDebt() { S.d = { id: null, kind: 'emprestimo', emo: '🏦', name: '', creditor: '', parcela: 0, total: 0, pagas: 0, juros: null, dueDay: 10, saldo: null, isNew: false }; S.d0 = snapD(S.d); S.dReturn = S.view; X.go('debtform'); },
       editDebt(dd) { const d = S.recs.find((r) => r.id === dd.id); if (!d) return; S.d = { ...d }; S.d0 = snapD(S.d); S.dReturn = S.view; X.go('debtform'); },
       disnew(d) { readD(); S.d.isNew = d.v === '1'; X.render(); },
+      dkind(d) { readD(); S.d.kind = d.v; S.d.emo = (DEBT_KINDS.find((x) => x[0] === d.v) || [])[1] || '💸'; X.render(); },
       async dBack() { readD(); if (!(await leave(snapD(S.d) !== S.d0, 'nesta dívida'))) return; const r = S.dReturn; S.d = null; X.go(r === 'divida' && S.dv ? 'divida' : 'dividas'); },
       async dsave() {
         readD();
@@ -1590,8 +2006,8 @@
         const key = M.mkey(S.month);
         const pr = planRec(key);
         S.peReturn = S.view;
-        S.pe = { key, out: { ...((pr && pr.out) || {}) }, in: { ...((pr && pr.in) || {}) } };
-        S.pe0 = JSON.stringify([S.pe.out, S.pe.in]);
+        S.pe = { key, out: { ...((pr && pr.out) || {}) }, in: { ...((pr && pr.in) || {}) }, items: JSON.parse(JSON.stringify((pr && pr.items) || {})) };
+        S.pe0 = JSON.stringify([S.pe.out, S.pe.in, S.pe.items]);
         X.go('planedit');
       },
       peBills() {
@@ -1601,6 +2017,17 @@
         Object.entries(by).forEach(([cat, v]) => { S.pe.out[cat] = Math.max(S.pe.out[cat] || 0, v); });
         X.render(); X.toast('Preenchi com o valor das contas fixas.');
       },
+      peDetail(d) {
+        readPE();
+        const cur = S.pe.out[d.cat] || 0;
+        // sugere itens a partir das contas fixas dessa categoria
+        const fromBills = bills().filter((b) => b.cat === d.cat && b.payer !== 'outro').map((b) => ({ name: b.name, cents: myPart(b, b.kind === 'fixa' ? b.cents : billAvg(b, S.pe.key)) }));
+        S.pe.items[d.cat] = fromBills.length ? fromBills : [{ name: '', cents: cur }];
+        X.render();
+      },
+      peItemAdd(d) { readPE(); S.pe.items[d.cat].push({ name: '', cents: 0 }); X.render(); },
+      peItemDel(d) { readPE(); const it = S.pe.items[d.cat]; it.splice(Number(d.i), 1); const sum = it.reduce((a, x) => a + (x.cents || 0), 0); if (sum) S.pe.out[d.cat] = sum; else delete S.pe.out[d.cat]; if (!it.length) delete S.pe.items[d.cat]; X.render(); },
+      peUndetail(d) { readPE(); delete S.pe.items[d.cat]; X.render(); },
       pePrev() {
         readPE();
         const prev = budget(M.addMonths(S.pe.key, -1));
@@ -1610,13 +2037,14 @@
       },
       async peBack() {
         readPE();
-        if (!(await leave(JSON.stringify([S.pe.out, S.pe.in]) !== S.pe0, 'no planejamento'))) return;
+        if (!(await leave(JSON.stringify([S.pe.out, S.pe.in, S.pe.items]) !== S.pe0, 'no planejamento'))) return;
         const r = S.peReturn; S.pe = null; X.go(r === 'orcamento' ? 'orcamento' : 'home');
       },
       async peSave() {
         readPE();
         const pe = S.pe;
-        await put({ id: `plan-${pe.key}`, type: 'plan', key: pe.key, out: pe.out, in: pe.in, updatedAt: new Date().toISOString() });
+        Object.keys(pe.items).forEach((c) => { pe.items[c] = pe.items[c].filter((it) => it.cents || (it.name || '').trim()); if (!pe.items[c].length) delete pe.items[c]; });
+        await put({ id: `plan-${pe.key}`, type: 'plan', key: pe.key, out: pe.out, in: pe.in, items: pe.items, updatedAt: new Date().toISOString() });
         S.pe = null; X.go('orcamento');
         const t = X.tone(S.cur);
         X.toast(t === 'debochado' ? 'Planejamento salvo. Agora é cumprir, hein.' : 'Planejamento salvo! Vou te ajudar a acompanhar.');
@@ -1906,7 +2334,8 @@
     // Botão "voltar" do Android nas telas deste módulo. true = tratado aqui.
     function back() {
       const map = { lancar: 'lancBack', wallet: 'wBack', catform: 'cBack', wdetail: 'wdBack', cardprev: 'cpBack', billform: 'bBack', billpay: 'bpBack', planedit: 'peBack',
-        subform: 'uBack', assinaturas: 'subsBack', divida: 'dvBack', debtform: 'dBack', relatorio: 'repBack' };
+        subform: 'uBack', assinaturas: 'subsBack', divida: 'dvBack', debtform: 'dBack', relatorio: 'repBack',
+        caixinhas: 'cxBack', caixa: 'gBack', caixaform: 'gfBack', vontades: 'vtBack' };
       if (S.view === 'dividas') { X.go('home'); return true; }
       if (S.view === 'contas' || S.view === 'orcamento') { X.go('home'); return true; }
       if (S.view === 'resumo') { X.go('extrato'); return true; }
@@ -1918,9 +2347,9 @@
       reload, home, moodOnEnter, back, settingsCats, state,
       views: { lancar: vLancar, extrato: vExtrato, carteira: vCarteira, wallet: vWallet, wdetail: vWDetail, catform: vCatForm, cardprev: vPrev,
         contas: vContas, billform: vBillForm, billpay: vBillPay, orcamento: vOrcamento, planedit: vPlanEdit,
-        resumo: vResumo, assinaturas: vSubs, subform: vSubForm, dividas: vDividas, divida: vDivida, debtform: vDebtForm, relatorio: vRelatorio },
+        resumo: vResumo, assinaturas: vSubs, subform: vSubForm, dividas: vDividas, divida: vDivida, debtform: vDebtForm, relatorio: vRelatorio, mais: vMais, caixinhas: vCaixinhas, caixa: vCaixa, caixaform: vCaixaForm, vontades: vVontades },
       actions,
-      onInput(e) { if (e.target.id === 'fdesc' && S.f) S.f.desc = e.target.value; },
+      onInput(e) { if (e.target.id === 'fdesc' && S.f) S.f.desc = e.target.value; if (e.target.id === 'busca') filterMais(e.target.value); },
       onChange(e) { if (e.target.id === 'fdate' && S.f && e.target.value) { readF(); S.f.date = e.target.value; X.render(); } }
     };
   };

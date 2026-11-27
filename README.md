@@ -4,6 +4,18 @@ App de finanças da casa (perfis "Mãe" e "Eu"), em português, salvo só no cel
 Sem servidor, sem login de banco, sem conexão com banco. Backup por arquivo JSON.
 
 ## Onde paramos
+**Fase 3, partes 2 e 3 — versão 0.10.0 (prontas):**
+- **Caixinhas** (`goal` + movimentos `goalmv`): meta, prazo opcional (mês), quanto guardar por mês, trilha em SVG com o mascote andando (0/25/50/75/100%) e falas por etapa nos dois tons; guardar/tirar; concluídas 🏁; sugestão de reserva de emergência = 3× média dos gastos essenciais. Guardar não conta como gasto.
+- **Vontade de comprar** (`wish`): anota, espera 24h, depois "Ainda quero" (abre o lançamento já preenchido e marca comprada ao salvar), "Desisti" (soma no poupado e pode ir pra uma caixinha) ou "esperar mais 24h". Aviso no Início quando passa 24h; lembrete opcional em .ics (sem servidor, sem notificação com app fechado).
+- Backup/restaurar remapeia `goalId` e `wishId`.
+
+**Ajustes 0.9.2 (prontos):**
+- Aba **Mais** (no lugar de Ajustes na barra): todas as funções + busca sem acento + ajuda rápida (FAQ).
+- Botão voltar do Android: reserva de 3 entradas criadas no toque; Ajustes → Mais → Início → Perfis → sai.
+- Rosca do Resumo e linhas do Orçamento clicáveis: abrem o Extrato filtrado pela categoria (chip "✕ Todas").
+- Planejamento detalhado: "detalhar em itens" por categoria de gasto (nome + valor); total = soma; sugere as contas fixas da categoria.
+- Dívidas por tipo: Empréstimos/financiamentos, Contas parceladas (carnê, crediário), Acordos. Seção "Parcelados no cartão" só pra consulta (não soma).
+
 **Fase 1 — Etapa 1 (pronta):**
 - Perfis estilo Netflix (Mãe e Eu), dados separados por `profileId`.
 - Senha (PIN 4–6 números) opcional por perfil, guardada só em hash SHA-256 com sal.
