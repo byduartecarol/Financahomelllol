@@ -167,6 +167,14 @@
           out.push({ kind: 'bill', id: b.id, key: k, name: b.name + (k !== key ? ` (${M.monthName(k)})` : ''), emo: b.emo || '🧾',
             cents: i.cents, mine: i.mine, other: b.payer === 'outro', payer: payerLabel(b), estimated: i.estimated, st: i.st, due: i.due, paid: i.st.id === 'paga' });
         });
+        debts().filter((d) => debtStart(d) <= k).forEach((d) => {
+          const paidTx = debtPaidIn(d, k);
+          const due = M.dayIn(k, d.dueDay || 10);
+          const st = dueStatus(due, !!paidTx);
+          if (k !== key && st.id === 'paga') return;
+          out.push({ kind: 'debt', id: d.id, key: k, name: d.name + ` (${Math.min(d.total, d.pagas + (paidTx ? 0 : 1))}/${d.total})` + (k !== key ? ` (${M.monthName(k)})` : ''), emo: d.emo || '💸',
+            cents: d.parcela, mine: d.parcela, st, due, paid: !!paidTx });
+        });
         wallets('cartao').forEach((w) => {
           const tot = M.sum(faturaItems(w, k));
           if (!tot) return;
@@ -179,10 +187,63 @@
       const rank = { atrasada: 0, hoje: 1, logo: 2, aberta: 3, paga: 9 };
       return out.sort((a, b) => (rank[a.st.id] ?? 5) - (rank[b.st.id] ?? 5) || a.due - b.due);
     }
-    const dueRow = (d) => `<button class="due-row ${d.paid ? 'paid' : ''}" data-action="${d.kind === 'bill' ? 'openBill' : 'openFatura'}" data-id="${esc(d.id)}" data-k="${d.key}">
+    const dueRow = (d) => `<button class="due-row ${d.paid ? 'paid' : ''}" data-action="${d.kind === 'bill' ? 'openBill' : d.kind === 'debt' ? 'openDebt' : 'openFatura'}" data-id="${esc(d.id)}" data-k="${d.key}">
         <span class="check ${d.paid ? 'on' : ''}" aria-hidden="true">${d.paid ? '✓' : ''}</span>
         <span class="tx-mid"><b>${esc(d.emo)} ${esc(d.name)}</b><small>vence ${M.shortDate(d.due)}${d.payer ? ` · <span class="payer ${d.other ? 'other' : ''}">${esc(d.payer)}</span>` : ''}${d.estimated ? ' · <span class="hint-in">estimado: toque pra informar o valor</span>' : ''}</small></span>
         <span class="fat-r"><b class="${d.other ? 'muted' : ''}">${d.estimated ? '~' : ''}${brl(d.mine !== undefined && !d.other ? d.mine : d.cents)}</b><span class="st st-${d.st.id}">${esc(d.st.label)}</span></span></button>`;
+
+    /* ---------- dívidas (Fase 3) ----------
+       debt: { type:'debt', name, emo, creditor, parcela, total, pagas, juros (% ao mês, opcional), saldo (opcional),
+               dueDay, pay, wallet, quitada, negs:[{date,text}], isNew, createdAt }
+       Pagar a parcela cria um gasto (tx.debtId + tx.debtN) e soma 1 em "pagas". */
+    const debts = (all) => S.recs.filter((r) => r.type === 'debt' && (all || !r.quitada)).sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+    const DEBT_KINDS = [['emprestimo', '🏦', 'Empréstimos e financiamentos'], ['parcelado', '🧾', 'Contas parceladas (carnê, crediário…)'], ['acordo', '🤝', 'Acordos e renegociações']];
+    // Parcelados no CARTÃO que ainda têm parcelas pela frente (só pra consulta: já estão nas faturas)
+    function cardInstallments() {
+      const out = [];
+      txs().filter((r) => r.pay === 'credito' && r.dir === 'out' && (r.parcelas || 1) > 1).forEach((r) => {
+        const w = S.recs.find((x) => x.id === r.wallet && x.kind === 'cartao');
+        const k0 = w ? M.faturaOf(r.date, w.closeDay, w.dueDay) : M.mkey(M.parse(r.date));
+        const nowK = w ? M.faturaOf(today(), w.closeDay, w.dueDay) : M.mkey(new Date());
+        const idx = (Number(nowK.slice(0, 4)) - Number(k0.slice(0, 4))) * 12 + Number(nowK.slice(5)) - Number(k0.slice(5));
+        const left = r.parcelas - Math.max(0, idx);
+        if (left > 0) out.push({ name: r.desc || M.cat(r.cat).nome, card: w ? w.name : 'cartão', parcela: Math.round(r.cents / r.parcelas), left, total: r.parcelas });
+      });
+      S.recs.filter((r) => r.type === 'cardinst').forEach((r) => {
+        const w = S.recs.find((x) => x.id === r.wallet);
+        const nowK = w ? M.faturaOf(today(), w.closeDay, w.dueDay) : M.mkey(new Date());
+        const idx = (Number(nowK.slice(0, 4)) - Number(r.firstKey.slice(0, 4))) * 12 + Number(nowK.slice(5)) - Number(r.firstKey.slice(5));
+        const left = r.remaining - Math.max(0, idx);
+        if (left > 0) out.push({ name: r.desc, card: w ? w.name : 'cartão', parcela: r.parcela, left, total: r.total });
+      });
+      return out;
+    }
+    const restantes = (d) => Math.max(0, d.total - d.pagas);
+    const saldoDe = (d) => d.saldo && d.saldo > 0 ? d.saldo : d.parcela * restantes(d);
+    const debtPaidIn = (d, key) => txs().find((r) => r.debtId === d.id && String(r.date).slice(0, 7) === key);
+    const debtStart = (d) => d.startKey || M.mkey(new Date(d.createdAt || Date.now()));
+    // Dias sem dívida nova: desde a última dívida marcada como "fiz agora" (ou desde que começou a anotar dívidas)
+    function diasSemDivida() {
+      const all = debts(true);
+      if (!all.length) return null;
+      const news = all.filter((d) => d.isNew).map((d) => d.createdAt).sort();
+      const base = news.length ? news[news.length - 1] : all.map((d) => d.createdAt).sort()[0];
+      return Math.max(0, Math.floor((M.parse(today()) - M.parse(M.ymd(new Date(base)))) / 86400000));
+    }
+    // Plano de quitação (aproximado, sem juros): parcelas normais + extra no "foco"; parcela de dívida quitada vira extra (bola de neve)
+    function payoffPlan(mode, extra) {
+      const list = debts().map((d) => ({ d, bal: saldoDe(d) }));
+      list.sort(mode === 'juros' ? (a, b) => (b.d.juros || 0) - (a.d.juros || 0) || a.bal - b.bal : (a, b) => a.bal - b.bal);
+      const res = new Map();
+      let freed = 0;
+      for (let mth = 1; mth <= 600 && list.some((x) => x.bal > 0); mth++) {
+        let pool = extra + freed;
+        list.forEach((x) => { if (x.bal > 0) x.bal -= Math.min(x.bal, x.d.parcela); });
+        for (const x of list) { if (x.bal > 0 && pool > 0) { const pay = Math.min(pool, x.bal); x.bal -= pay; pool -= pay; } }
+        list.forEach((x) => { if (x.bal <= 0 && !res.has(x.d.id)) { res.set(x.d.id, mth); freed += x.d.parcela; } });
+      }
+      return { order: list.map((x) => x.d), months: res };
+    }
 
     /* ---------- orçamento planejado × real (Fase 2) ----------
        plan: { type:'plan', key:'AAAA-MM', out:{cat:centavos}, in:{cat:centavos} }
@@ -191,11 +252,12 @@
     function budget(key) {
       const pr = planRec(key);
       const pOut = (pr && pr.out) || {}, pIn = (pr && pr.in) || {};
+      const pItems = (pr && pr.items) || {};
       const tx = txs().filter((r) => String(r.date).slice(0, 7) === key);
       const realBy = (dir) => { const m = {}; tx.filter((r) => r.dir === dir).forEach((r) => { m[r.cat] = (m[r.cat] || 0) + r.cents; }); return m; };
       const rOut = realBy('out'), rIn = realBy('in');
       const rows = (pl, re) => [...new Set([...Object.keys(pl).filter((k) => pl[k] > 0), ...Object.keys(re)])]
-        .map((cat) => ({ cat, c: M.cat(cat), plan: pl[cat] || 0, real: re[cat] || 0 }))
+        .map((cat) => ({ cat, c: M.cat(cat), plan: pl[cat] || 0, real: re[cat] || 0, items: pItems[cat] || [] }))
         .sort((a, b) => (b.plan || b.real) - (a.plan || a.real));
       const tot = (o) => Object.values(o).reduce((a, v) => a + (v || 0), 0);
       return { has: !!pr, inherited: pr && pr.key !== key ? pr.key : null, out: rows(pOut, rOut), inn: rows(pIn, rIn),
@@ -207,10 +269,12 @@
       const pct = r.plan ? Math.min(100, Math.round(r.real / r.plan * 100)) : 100;
       const diff = r.plan - r.real;
       const note = !r.plan ? 'sem planejamento' : income ? (diff > 0 ? `faltam entrar ${brl(diff)}` : 'recebido ✓') : diff >= 0 ? `sobram ${brl(diff)}` : `passou ${brl(-diff)}`;
-      return `<div class="bud-row ${cls}">
+      const items = (r.items || []).filter((it) => it.cents);
+      return `<button class="bud-row ${cls}" data-action="xcat" data-v="${esc(r.cat)}">
         <div class="bud-top"><span>${esc(r.c.emo)} ${esc(r.c.nome)}</span><span><b>${brl(r.real)}</b>${r.plan ? ` <small>de ${brl(r.plan)}</small>` : ''}</span></div>
         <div class="bud-bar"><div style="width:${pct}%"></div></div>
-        <small class="bud-note">${note}</small></div>`;
+        <small class="bud-note">${note} ›</small>
+        ${items.length ? `<span class="bud-items">${items.map((it) => `${esc(it.name)} ${brl(it.cents)}`).join(' · ')}</span>` : ''}</button>`;
     }
     function planCard() {
       const key = M.mkey(S.month);
@@ -320,7 +384,8 @@
           ${dl.length ? `<div class="tx-list">${dl.slice(0, 6).map(dueRow).join('')}</div>` : '<p class="empty">Cadastre aluguel, luz, internet… e elas aparecem aqui todo mês num checklist.</p>'}
           <button class="link" data-action="goContas">${dl.length ? (dl.length > 6 ? `Ver todas (${dl.length}) e cadastrar` : 'Ver todas e cadastrar') : '＋ Cadastrar contas fixas'}</button>
         </section>
-        <div class="quick-links"><button class="btn" data-action="goResumo">📈 Resumo e gráficos</button>${subs().length ? '' : '<button class="btn" data-action="goSubs">📺 Assinaturas</button>'}</div>
+        <div class="quick-links"><button class="btn" data-action="goResumo">📈 Resumo e gráficos</button><button class="btn" data-action="goDividas">💸 Dívidas${debts().length ? ` (${debts().length})` : ''}</button>
+          ${subs().length ? '' : '<button class="btn" data-action="goSubs">📺 Assinaturas</button>'}<button class="btn" data-action="goRelatorio">🖨️ Relatório do mês</button></div>
         ${(() => {
           const us = subs(); if (!us.length) return '';
           const tr = us.filter((u) => trialDays(u) !== null && trialDays(u) <= 7);
@@ -443,7 +508,8 @@
       const ess = M.sum(outL.filter((r) => r.ess !== false));
       const filt = S.xfilter || 'todos';
       const xpay = S.xpay || '';
-      const list = all.filter((r) => (filt === 'todos' || (filt === 'out' ? r.dir === 'out' : r.dir === 'in')) && (!xpay || r.pay === xpay)).sort(sortTx);
+      const xcat = S.xcat || '';
+      const list = all.filter((r) => (filt === 'todos' || (filt === 'out' ? r.dir === 'out' : r.dir === 'in')) && (!xpay || r.pay === xpay) && (!xcat || r.cat === xcat)).sort(sortTx);
       const byPay = M.PAYS.map((p) => ({ ...p, total: M.sum(outL.filter((r) => r.pay === p.id)) }));
       const groups = [];
       list.forEach((r) => { const g = groups[groups.length - 1]; if (g && g.date === r.date) g.items.push(r); else groups.push({ date: r.date, items: [r] }); });
@@ -471,6 +537,7 @@
           </section>` : ''}
           <div class="chips">${btns('xfilter', [['todos', 'Tudo'], ['out', 'Gastos'], ['in', 'Receitas']], filt)}</div>
           ${xpay ? `<p class="small">Mostrando só gastos em <b>${M.pay(xpay).nome}</b>: ${brl(M.sum(list))}</p>` : ''}
+          ${xcat ? `<div class="cat-filter"><span>${esc(M.cat(xcat).emo)} <b>${esc(M.cat(xcat).nome)}</b>: ${list.length} lançamento(s) · ${brl(M.sum(list))}</span><button class="chip sm" data-action="xcat" data-v="">✕ Todas as categorias</button></div>` : ''}
           ${groups.length ? groups.map((g) => `<section class="day"><h4>${M.dayLabel(g.date)}</h4><div class="tx-list">${g.items.map(txRow).join('')}</div></section>`).join('')
             : `<section class="card"><p class="empty">Nenhum lançamento ${filt === 'in' ? 'de receita ' : filt === 'out' ? 'de gasto ' : ''}neste mês.</p></section>`}
         </main>${X.nav('extrato')}</div>`;
@@ -650,9 +717,19 @@
       const val = (c) => c ? (c / 100).toFixed(2).replace('.', ',') : '';
       const row = (dir, c) => {
         const cur = (dir === 'out' ? pe.out : pe.in)[c.id] || 0;
+        const items = pe.items[c.id];
+        if (items) {
+          const sum = items.reduce((a, it) => a + (it.cents || 0), 0);
+          return `<div class="pe-group"><div class="pe-row"><label><span>${esc(c.emo)} ${esc(c.nome)}</span><small>detalhado em ${items.length} item(ns)</small></label><b class="pe-sum">${brl(sum)}</b></div>
+            ${items.map((it, i) => `<div class="pe-item"><input class="field" data-it="${esc(c.id)}" data-i="${i}" data-k="name" maxlength="30" value="${esc(it.name)}" placeholder="Ex.: Aluguel">
+              <input class="field money sm" data-it="${esc(c.id)}" data-i="${i}" data-k="cents" inputmode="decimal" placeholder="0,00" value="${val(it.cents)}">
+              <button class="icon-btn x" data-action="peItemDel" data-cat="${esc(c.id)}" data-i="${i}" aria-label="Tirar item">✕</button></div>`).join('')}
+            <div class="row"><button class="link" data-action="peItemAdd" data-cat="${esc(c.id)}">＋ item</button><button class="link" data-action="peUndetail" data-cat="${esc(c.id)}" data-dir="${dir}">usar valor único</button></div></div>`;
+        }
         const hint = [prevOf(dir === 'out' ? prev.out : prev.inn, c.id) ? `mês passado ${brl(prevOf(dir === 'out' ? prev.out : prev.inn, c.id))}` : '',
           dir === 'out' && billsBy[c.id] ? `contas fixas ${brl(billsBy[c.id])}` : ''].filter(Boolean).join(' · ');
-        return `<div class="pe-row"><label for="pe-${dir}-${esc(c.id)}"><span>${esc(c.emo)} ${esc(c.nome)}</span>${hint ? `<small>${hint}</small>` : ''}</label>
+        return `<div class="pe-row"><label for="pe-${dir}-${esc(c.id)}"><span>${esc(c.emo)} ${esc(c.nome)}</span>${hint ? `<small>${hint}</small>` : ''}
+            ${dir === 'out' ? `<button class="link tiny-link" data-action="peDetail" data-cat="${esc(c.id)}">detalhar em itens</button>` : ''}</label>
           <input class="field money sm" id="pe-${dir}-${esc(c.id)}" data-dir="${dir}" data-cat="${esc(c.id)}" inputmode="decimal" placeholder="0,00" value="${val(cur)}"></div>`;
       };
       return `<div class="page form-page">
@@ -669,7 +746,12 @@
     }
     function readPE() {
       if (!S.pe) return;
-      document.querySelectorAll('.pe-row input').forEach((i) => {
+      document.querySelectorAll('.pe-item input').forEach((i) => {
+        const it = (S.pe.items[i.dataset.it] || [])[Number(i.dataset.i)]; if (!it) return;
+        if (i.dataset.k === 'name') it.name = i.value; else it.cents = M.parseBRL(i.value);
+      });
+      Object.entries(S.pe.items).forEach(([cat, items]) => { const sum = items.reduce((a, it) => a + (it.cents || 0), 0); if (sum) S.pe.out[cat] = sum; else delete S.pe.out[cat]; });
+      document.querySelectorAll('.pe-row input[data-cat]').forEach((i) => {
         const v = M.parseBRL(i.value);
         const o = i.dataset.dir === 'out' ? S.pe.out : S.pe.in;
         if (v) o[i.dataset.cat] = v; else delete o[i.dataset.cat];
@@ -737,10 +819,12 @@
             ${cats.length ? `<p>🏆 Maior gasto: <b>${esc(M.cat(cats[0][0]).emo)} ${esc(M.cat(cats[0][0]).nome)}</b>, ${brl(cats[0][1])}.</p>` : ''}
             <p>🧾 ${m.n} lançamento(s) no mês.</p>
             <button class="link" data-action="goPlan">📊 Ver orçamento (esperado × real)</button>
+            <button class="link" data-action="goRelatorio">🖨️ Relatório do mês (imprimir, PDF ou WhatsApp)</button>
           </section>
           <section class="card"><h3>Gastos por categoria</h3>
             ${slices.length ? `<div class="donut-wrap">${Charts.donut(slices, { big: Charts.brlShort(m.out), small: 'em gastos' })}</div>
-              <div class="legend-list">${slices.map((x) => `<div class="lg-row"><i style="background:${x.color}"></i><span>${esc(x.emo)} ${esc(x.label)}</span><b>${brl(x.value)}</b><small>${Math.round(x.value / m.out * 100)}%</small></div>`).join('')}</div>`
+              <div class="legend-list">${slices.map((x) => `<button class="lg-row" ${x.cat !== '_outros' ? `data-action="xcat" data-v="${esc(x.cat)}"` : 'disabled'}><i style="background:${x.color}"></i><span>${esc(x.emo)} ${esc(x.label)}</span><b>${brl(x.value)}</b><small>${Math.round(x.value / m.out * 100)}% ${x.cat !== '_outros' ? '›' : ''}</small></button>`).join('')}</div>
+              <p class="tiny">Toque numa categoria pra ver os gastos dela.</p>`
               : '<p class="empty">Nenhum gasto neste mês.</p>'}
           </section>
           <section class="card"><h3>Entradas × gastos, mês a mês</h3>
@@ -765,6 +849,247 @@
               : '<p class="empty">Quando você marcar contas e faturas como pagas, o histórico aparece aqui.</p>'}
           </section>
         </main>${X.nav('extrato')}</div>`;
+    }
+
+    /* ---------- menu "Mais": todas as funções + busca + ajuda ---------- */
+    const FEATURES = [
+      ['goContas', '🧾', 'Contas do mês', 'Checklist de aluguel, luz, água, faturas; marcar como paga', 'contas fixas checklist vencimento luz agua aluguel falta pagar'],
+      ['goPlan', '📊', 'Orçamento', 'Esperado × real por categoria, entradas e gastos', 'planejar planejamento limite meta categoria esperado'],
+      ['goResumo', '📈', 'Resumo e gráficos', 'Rosca por categoria, mês a mês, contas em dia', 'grafico pizza rosca resumo historico comparacao'],
+      ['goRelatorio', '🖨️', 'Relatório do mês', 'Imprimir, salvar PDF ou mandar resumo no WhatsApp', 'relatorio pdf imprimir whatsapp compartilhar'],
+      ['goDividas', '💸', 'Dívidas', 'Empréstimos, contas parceladas, acordos e plano pra quitar', 'divida emprestimo parcelado carne crediario acordo quitar'],
+      ['goSubs', '📺', 'Assinaturas', 'Netflix, Spotify… total por mês e por ano, teste grátis', 'assinatura streaming netflix spotify teste gratis'],
+      ['tab:carteira', '💳', 'Carteira', 'Contas, cartões e faturas; gastos por Pix, débito…', 'cartao fatura conta banco pix debito credito dinheiro'],
+      ['tab:extrato', '☰', 'Extrato', 'Todos os lançamentos do mês, filtros', 'extrato lancamentos gastos receitas lista'],
+      ['tab:settings', '⚙️', 'Ajustes', 'Mascote, letra, tema, senha, backup, perfis, cadernos', 'ajustes configuracoes senha backup mascote tema letra perfil caderno']
+    ];
+    const FAQ = [
+      ['Como lanço um gasto?', 'Toque no ＋ do meio da barra de baixo, digite o valor, escolha a categoria e a forma de pagamento e toque em Salvar.'],
+      ['Onde fica o relatório do mês?', 'Aqui no Mais → Relatório do mês, ou no Início/Resumo. Dá pra imprimir, salvar PDF ou mandar resumo.'],
+      ['Compra parcelada no cartão vai em Dívidas?', 'Não. Lance como gasto no Crédito com as parcelas: ela já entra nas faturas. Em Dívidas vão empréstimos, carnês/crediário e acordos.'],
+      ['Dívida eu lanço como gasto?', 'Não. Cadastre em Dívidas. Cada parcela que você marcar como paga vira um gasto sozinha.'],
+      ['Como faço backup?', 'Mais → Ajustes → Backup → Salvar backup no celular (ou Enviar pro Drive/WhatsApp). Faça pelo menos uma vez por mês.'],
+      ['Os celulares sincronizam?', 'Não. Cada celular guarda os próprios dados, sem internet. Pra levar pra outro celular, use backup e restaurar.'],
+      ['Como recebo lembrete das contas?', 'Contas do mês → Mandar pro Google Agenda. Ele avisa 3 dias antes e no dia, mesmo com o app fechado.'],
+      ['Esqueci a senha. E agora?', 'Na tela da senha, toque em "Esqueci a senha" e use o código de recuperação que apareceu quando a senha foi criada.']
+    ];
+    function vMais() {
+      return `<div class="page">
+        <header class="topbar"><div class="who"><small>Tudo do app</small><b>Mais</b></div></header>
+        <main class="content">
+          <input class="field search" id="busca" type="search" placeholder="🔎 Buscar: relatório, dívida, backup…" autocomplete="off" aria-label="Buscar função ou ajuda">
+          <section class="card" id="feat-list">${FEATURES.map(([act, emo, t, d, kw]) => {
+            const [a, v] = act.split(':');
+            return `<button class="w-row feat" data-action="${a}" ${v ? `data-v="${v}"` : ''} data-kw="${esc((t + ' ' + d + ' ' + kw).toLowerCase())}"><span class="w-ico">${emo}</span><span class="tx-mid"><b>${t}</b><small>${d}</small></span><span class="chev">›</span></button>`;
+          }).join('')}<p class="empty none-found" hidden>Nada encontrado nas funções. Veja a ajuda abaixo.</p></section>
+          <section class="card" id="faq"><h3>Ajuda rápida</h3>${FAQ.map(([q, a]) => `<details class="faq" data-kw="${esc((q + ' ' + a).toLowerCase())}"><summary>${q}</summary><p>${a}</p></details>`).join('')}</section>
+        </main>${X.nav('mais')}</div>`;
+    }
+    function filterMais(q) {
+      const n = q.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+      const norm = (t) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      let shown = 0;
+      document.querySelectorAll('.feat').forEach((el) => { const ok = !n || norm(el.dataset.kw).includes(n); el.hidden = !ok; if (ok) shown++; });
+      document.querySelectorAll('.faq').forEach((el) => { const ok = !n || norm(el.dataset.kw).includes(n); el.hidden = !ok; if (ok && n) el.open = true; });
+      const nf = document.querySelector('.none-found'); if (nf) nf.hidden = shown > 0;
+    }
+
+    /* ---------- telas de dívidas ---------- */
+    function vDividas() {
+      const ds = debts(), dsAll = debts(true);
+      const quit = dsAll.filter((d) => d.quitada);
+      const total = ds.reduce((a, d) => a + saldoDe(d), 0), mensal = ds.reduce((a, d) => a + d.parcela, 0);
+      const dias = diasSemDivida();
+      const mode = S.cur.prefs.debtMode || 'menor';
+      const extra = S.cur.prefs.debtExtra || 0;
+      const plan = payoffPlan(mode, extra);
+      const when = (m) => { const d = new Date(); d.setMonth(d.getMonth() + m - 1); return M.monthName(M.mkey(d)).slice(0, 3) + '/' + String(d.getFullYear()).slice(2); };
+      const key = M.mkey(new Date());
+      return `<div class="page">
+        <header class="topbar"><button class="icon-btn" data-action="tab" data-v="home">‹ Início</button>
+          <div class="who"><b>Dívidas</b><small>${esc(X.ledgerName())}</small></div></header>
+        <main class="content">
+          ${X.ledgerBar()}
+          <section class="card total ${ds.length ? '' : 'st-bg-paga'}">
+            <span>${ds.length ? 'Você ainda deve (aprox.)' : 'Nenhuma dívida em aberto'}</span>
+            <strong>${brl(total)}</strong>
+            <span class="sub">${ds.length ? `${brl(mensal)} por mês em parcelas · ${ds.length} dívida(s)` : quit.length ? `${quit.length} dívida(s) quitada(s) 🎉` : 'Que maravilha!'}</span>
+            ${dias !== null ? `<span class="bal">🏅 <b>${dias}</b> dia${dias === 1 ? '' : 's'} sem dívida nova</span>` : ''}
+          </section>
+          ${(() => {
+            const row = (d) => {
+              const pct = Math.round(d.pagas / d.total * 100);
+              const paid = debtPaidIn(d, key);
+              return `<button class="debt-row" data-action="openDebt" data-id="${esc(d.id)}">
+                <div class="bud-top"><span>${esc(d.emo || '💸')} <b>${esc(d.name)}</b>${d.creditor ? ` <small>· ${esc(d.creditor)}</small>` : ''}</span><span><b>${brl(saldoDe(d))}</b></span></div>
+                <div class="bud-row ${pct >= 80 ? 'ok' : ''}"><div class="bud-bar"><div style="width:${pct}%"></div></div></div>
+                <small class="bud-note">${d.pagas} de ${d.total} parcelas pagas (${pct}%) · parcela ${brl(d.parcela)}${d.juros ? ` · juros ${String(d.juros).replace('.', ',')}% a.m.` : ''} · ${paid ? 'paga este mês ✓' : `vence dia ${d.dueDay}`}</small></button>`;
+            };
+            const groups = DEBT_KINDS.map(([k, emo, title]) => ({ k, emo, title, list: ds.filter((d) => (d.kind || 'emprestimo') === k) })).filter((g) => g.list.length);
+            return (groups.length ? groups.map((g) => `<section class="card"><h3>${g.emo} ${g.title}</h3>${g.list.map(row).join('')}
+                <small class="bud-note">Total: ${brl(g.list.reduce((a, d) => a + saldoDe(d), 0))} · ${brl(g.list.reduce((a, d) => a + d.parcela, 0))}/mês</small></section>`).join('')
+              : '<section class="card"><h3>Minhas dívidas</h3><p class="empty">Aqui entram empréstimos, contas parceladas fora do cartão (carnê, crediário) e acordos. Compra parcelada no cartão não: ela já está na fatura.</p></section>')
+              + '<button class="btn wide" data-action="newDebt">＋ Nova dívida</button>';
+          })()}
+          ${(() => {
+            const ci = cardInstallments(); if (!ci.length) return '';
+            return `<section class="card soft"><h3>💳 Parcelados no cartão <small class="tiny">(só pra consulta)</small></h3>
+              ${ci.map((c) => `<div class="hist-row"><span>${esc(c.name)} <small>· ${esc(c.card)} · faltam ${c.left} de ${c.total}</small></span><b>${brl(c.parcela)}/mês</b></div>`).join('')}
+              <p class="tiny">Ainda falta ${brl(ci.reduce((a, c) => a + c.parcela * c.left, 0))} no total. Isso já está nas faturas, por isso não soma no "Você ainda deve".</p></section>`;
+          })()}
+          ${ds.length > 0 ? `<section class="card"><h3>Plano pra quitar</h3>
+            <div class="seg">${btns('debtMode', [['menor', 'Menor primeiro'], ['juros', 'Maior juros primeiro']], mode, '')}</div>
+            <p class="tiny">${mode === 'menor' ? 'Bola de neve: quita a menor primeiro, ganha ânimo e o valor da parcela livre vai pra próxima.' : 'Avalanche: ataca a de juros mais altos primeiro e paga menos juros no total.'}</p>
+            <label class="lbl" for="dextra">Se sobrar um dinheiro extra por mês, quanto dá pra pôr nas dívidas?</label>
+            <div class="row"><input class="field money" id="dextra" inputmode="decimal" placeholder="0,00" value="${extra ? (extra / 100).toFixed(2).replace('.', ',') : ''}"><button class="btn" data-action="debtExtra">Simular</button></div>
+            <ol class="plan-list">${plan.order.map((d, i) => `<li class="${i === 0 ? 'focus' : ''}"><b>${esc(d.name)}</b>${i === 0 ? ' <span class="st st-logo">foco agora</span>' : ''}
+              <small>${brl(saldoDe(d))}${d.juros ? ` · ${String(d.juros).replace('.', ',')}% a.m.` : ''} · quitada em ~${when(plan.months.get(d.id) || restantes(d))}</small></li>`).join('')}</ol>
+            <p class="tiny">Estimativa aproximada, sem calcular juros. Serve pra ver a ordem e o ritmo.</p>
+          </section>` : ''}
+          ${quit.length ? `<section class="card"><h3>Quitadas 🎉</h3>${quit.map((d) => `<button class="w-row" data-action="openDebt" data-id="${esc(d.id)}"><span class="w-ico">✅</span><span class="tx-mid"><b>${esc(d.name)}</b><small>${d.total} parcelas pagas</small></span></button>`).join('')}</section>` : ''}
+        </main>${X.nav('home')}</div>`;
+    }
+    function vDivida() {
+      const d = S.recs.find((r) => r.id === S.dv);
+      if (!d) return vDividas();
+      const key = M.mkey(new Date());
+      const paid = debtPaidIn(d, key);
+      const pct = Math.round(d.pagas / d.total * 100);
+      const cards = wallets('cartao'), contas = wallets('conta');
+      const P = S.dp || { pay: d.pay || S.cur.prefs.lastPay || 'pix', wallet: d.wallet || null };
+      S.dp = P;
+      const hist = txs().filter((r) => r.debtId === d.id).sort((a, b) => b.date.localeCompare(a.date));
+      return `<div class="page form-page">
+        <header class="topbar"><button class="icon-btn" data-action="dvBack">‹ Voltar</button>
+          <div class="who"><b>${esc(d.emo || '💸')} ${esc(d.name)}</b><small>${esc(d.creditor || 'Dívida')}</small></div>
+          <button class="icon-btn" data-action="editDebt" data-id="${esc(d.id)}">Editar</button></header>
+        <main class="content">
+          <section class="card total ${d.quitada ? 'st-bg-paga' : ''}">
+            <span>${d.quitada ? 'Quitada! 🎉' : 'Ainda falta (aprox.)'}</span><strong>${brl(saldoDe(d))}</strong>
+            <span class="sub">${d.pagas} de ${d.total} parcelas pagas · parcela ${brl(d.parcela)} · vence dia ${d.dueDay}</span>
+          </section>
+          <div class="bud-row ${pct >= 80 ? 'ok' : ''}"><div class="bud-bar big"><div style="width:${pct}%"></div></div><small class="bud-note">${pct}% pago</small></div>
+          ${d.quitada ? '' : paid ? `<p class="small center-t">Parcela de ${M.monthName(key)} paga ${['Hoje', 'Ontem'].includes(M.dayLabel(paid.date)) ? M.dayLabel(paid.date).toLowerCase() : 'em ' + M.shortDate(M.parse(paid.date))} ✓</p>` : `<section class="card"><h3>Pagar a parcela ${d.pagas + 1}/${d.total}</h3>
+              <div class="chips">${btns('dvpay', M.PAYS.map((p) => [p.id, `${p.emo} ${p.nome}`]), P.pay)}</div>
+              ${P.pay === 'credito' && cards.length ? `<div class="chips">${btns('dvwallet', cards.map((w) => [w.id, esc(w.name)]), P.wallet)}</div>` : ''}
+              ${(P.pay === 'pix' || P.pay === 'debito') && contas.length ? `<div class="chips">${btns('dvwallet', contas.map((w) => [w.id, esc(w.name)]), P.wallet)}</div>` : ''}
+            </section>
+            <button class="btn primary wide big-save" data-action="dvPagar">✓ Paguei a parcela (${brl(d.parcela)})</button>`}
+          ${hist.length ? '<button class="btn wide" data-action="dvUndo">Desfazer a última parcela</button>' : ''}
+          <section class="card"><h3>Negociações</h3>
+            ${(d.negs || []).length ? (d.negs || []).slice().reverse().map((n) => `<div class="nego"><small>${new Date(n.date).toLocaleDateString('pt-BR')}</small><p>${esc(n.text)}</p></div>`).join('') : '<p class="empty">Anote aqui cada conversa: proposta, desconto, novo valor, protocolo…</p>'}
+            <button class="btn wide" data-action="dvNeg">＋ Anotar negociação</button>
+          </section>
+          ${hist.length ? `<section class="card"><h3>Parcelas pagas</h3>${hist.map((r) => `<div class="hist-row"><span>${M.dayLabel(r.date)} · ${r.debtN}/${d.total}</span><b>${brl(r.cents)}</b></div>`).join('')}</section>` : ''}
+        </main></div>`;
+    }
+    function vDebtForm() {
+      const d = S.d;
+      const days = Array.from({ length: 31 }, (_, i) => i + 1);
+      const v = (c) => c ? (c / 100).toFixed(2).replace('.', ',') : '';
+      return `<div class="page form-page">
+        <header class="topbar"><button class="icon-btn" data-action="dBack">‹ Voltar</button><div class="who"><b>${d.id ? 'Editar' : 'Nova'} dívida</b></div></header>
+        <main class="content"><section class="card">
+          <label class="lbl">Tipo</label>
+          <div class="seg col3">${btns('dkind', DEBT_KINDS.map(([k, e, t]) => [k, `${e} ${t.split(' (')[0].replace(' e financiamentos', '').replace(' e renegociações', '')}`]), d.kind || 'emprestimo', '')}</div>
+          <label class="lbl" for="dname">O que é?</label><input class="field" id="dname" maxlength="30" value="${esc(d.name)}" placeholder="Ex.: Empréstimo, acordo do cartão">
+          <label class="lbl" for="dcred">Com quem? <span class="tiny">(opcional)</span></label><input class="field" id="dcred" maxlength="30" value="${esc(d.creditor || '')}" placeholder="Ex.: Banco, loja, parente">
+          <label class="lbl" for="dparc">Valor da parcela</label><input class="field money" id="dparc" inputmode="decimal" placeholder="Ex.: 250,00" value="${v(d.parcela)}">
+          <div class="two">
+            <div><label class="lbl" for="dtot">Total de parcelas</label><input class="field" id="dtot" type="number" inputmode="numeric" min="1" max="600" value="${d.total || ''}" placeholder="Ex.: 12"></div>
+            <div><label class="lbl" for="dpag">Já pagas</label><input class="field" id="dpag" type="number" inputmode="numeric" min="0" max="600" value="${d.pagas ?? ''}" placeholder="Ex.: 3"></div>
+          </div>
+          <div class="two">
+            <div><label class="lbl" for="djur">Juros ao mês <span class="tiny">(opcional)</span></label><input class="field" id="djur" inputmode="decimal" value="${d.juros ? String(d.juros).replace('.', ',') : ''}" placeholder="Ex.: 3,5"></div>
+            <div><label class="lbl" for="ddue">Vence todo dia</label><select class="field" id="ddue">${days.map((x) => `<option value="${x}" ${d.dueDay === x ? 'selected' : ''}>Dia ${x}</option>`).join('')}</select></div>
+          </div>
+          <label class="lbl" for="dsaldo">Saldo devedor <span class="tiny">(opcional: o valor pra quitar hoje)</span></label>
+          <input class="field money" id="dsaldo" inputmode="decimal" placeholder="Se não souber, deixo parcela × restantes" value="${v(d.saldo)}">
+          ${d.id ? '' : `<label class="lbl">Essa dívida…</label>
+            <div class="seg">${btns('disnew', [['0', 'Já existia'], ['1', 'Fiz agora']], d.isNew ? '1' : '0', '')}</div>
+            <p class="tiny">"Fiz agora" zera o contador de dias sem dívida nova.</p>`}
+        </section>
+        <button class="btn primary wide big-save" data-action="dsave">Salvar</button>
+        ${d.id ? '<button class="btn danger-outline wide" data-action="ddel">Apagar dívida</button>' : ''}
+        </main></div>`;
+    }
+    function readD() {
+      if (!S.d) return;
+      const g = (id) => document.getElementById(id);
+      if (g('dname')) S.d.name = g('dname').value;
+      if (g('dcred')) S.d.creditor = g('dcred').value;
+      if (g('dparc')) S.d.parcela = M.parseBRL(g('dparc').value);
+      if (g('dtot')) S.d.total = Number(g('dtot').value) || 0;
+      if (g('dpag')) S.d.pagas = Number(g('dpag').value) || 0;
+      if (g('djur')) S.d.juros = parseFloat(String(g('djur').value).replace(',', '.')) || null;
+      if (g('ddue')) S.d.dueDay = Number(g('ddue').value);
+      if (g('dsaldo')) S.d.saldo = M.parseBRL(g('dsaldo').value) || null;
+    }
+    const snapD = (d) => JSON.stringify([d.kind, d.name.trim(), d.creditor, d.parcela, d.total, d.pagas, d.juros, d.dueDay, d.saldo, d.isNew]);
+
+    /* ---------- relatório mensal (pra imprimir/PDF ou mandar) ---------- */
+    function vRelatorio() {
+      const key = M.mkey(S.month);
+      const t = totalsOf(key), prev = totalsOf(M.addMonths(key, -1));
+      const bd = budget(key);
+      const dl = dueList(key).filter((d) => d.key === key);
+      const us = subs(), ds = debts(true).filter((d) => !d.quitada || debtPaidIn(d, key));
+      const list = txs().filter((r) => String(r.date).slice(0, 7) === key).sort((a, b) => a.date.localeCompare(b.date));
+      const cats = Object.entries(t.byCat).sort((a, b) => b[1] - a[1]);
+      const adm = X.inAdm();
+      const td = (v, cls = '') => `<td class="${cls}">${v}</td>`;
+      const sit = (d) => d.paid ? (d.other ? 'Paga (pela outra pessoa) ✓' : 'Paga ✓') : d.st.id === 'atrasada' ? '⚠ Atrasada' : 'Pendente';
+      return `<div class="page report-page">
+        <header class="topbar no-print"><button class="icon-btn" data-action="repBack">‹ Voltar</button>
+          <div class="who"><b>Relatório</b><small>${M.monthName(key)}</small></div></header>
+        <div class="content no-print">
+          ${monthNav()}
+          <div class="add-row two-eq"><button class="btn primary" data-action="repPrint">🖨️ Imprimir / salvar PDF</button><button class="btn" data-action="repShare">💬 Mandar resumo</button></div>
+          <p class="tiny">Pra PDF: toque em Imprimir e escolha "Salvar como PDF". "Mandar resumo" envia um texto curto pelo WhatsApp.</p>
+        </div>
+        <article class="report">
+          <header class="rep-head"><h1>${adm ? esc(X.ledgerName()) : 'Finanças'} · ${M.monthName(key)} de ${key.slice(0, 4)}</h1>
+            <p>${adm ? `Administradas por ${esc(S.cur.name)}. Relatório pra registro e transparência.` : `Perfil: ${esc(S.cur.name)}`} · gerado em ${new Date().toLocaleDateString('pt-BR')}</p></header>
+          <section><h2>Resumo</h2><table><tbody>
+            <tr><th>Entrou</th>${td(brl(t.inn), 'num')}</tr>
+            <tr><th>Saiu</th>${td(brl(t.out), 'num')}</tr>
+            <tr><th>${t.inn - t.out < 0 ? 'Ficou negativo' : 'Sobrou'}</th>${td(brl(t.inn - t.out), 'num ' + (t.inn - t.out < 0 ? 'neg' : ''))}</tr>
+            ${t.out ? `<tr><th>Gastos essenciais</th>${td(`${brl(t.ess)} (${Math.round(t.ess / t.out * 100)}%)`, 'num')}</tr>` : ''}
+            ${prev.out ? `<tr><th>Gastos × mês anterior</th>${td(`${t.out >= prev.out ? '+' : '−'}${brl(Math.abs(t.out - prev.out))} (${prev.out ? Math.round((t.out - prev.out) / prev.out * 100) : 0}%)`, 'num')}</tr>` : ''}
+          </tbody></table></section>
+          ${bd.has ? `<section><h2>Orçamento: esperado × real</h2><table><thead><tr><th>Categoria</th><th class="num">Esperado</th><th class="num">Real</th><th class="num">Diferença</th></tr></thead><tbody>
+            ${bd.inn.map((r) => `<tr><td>↘ ${esc(r.c.nome)} (entrada)</td>${td(brl(r.plan), 'num')}${td(brl(r.real), 'num')}${td(brl(r.real - r.plan), 'num')}</tr>`).join('')}
+            ${bd.out.map((r) => `<tr><td>${esc(r.c.nome)}</td>${td(brl(r.plan), 'num')}${td(brl(r.real), 'num')}${td(brl(r.plan - r.real), 'num ' + (r.plan && r.real > r.plan ? 'neg' : ''))}</tr>`).join('')}
+            <tr class="tot"><td>Total de gastos</td>${td(brl(bd.planOut), 'num')}${td(brl(bd.realOut), 'num')}${td(brl(bd.planOut - bd.realOut), 'num')}</tr>
+          </tbody></table></section>` : ''}
+          ${cats.length ? `<section><h2>Gastos por categoria</h2><table><tbody>${cats.map(([c, v]) => `<tr><td>${esc(M.cat(c).nome)}</td>${td(brl(v), 'num')}${td(Math.round(v / t.out * 100) + '%', 'num')}</tr>`).join('')}</tbody></table></section>` : ''}
+          ${dl.length ? `<section><h2>Contas do mês</h2><table><thead><tr><th>Conta</th><th>Vence</th><th class="num">Valor</th><th>Situação</th></tr></thead><tbody>
+            ${dl.map((d) => `<tr><td>${esc(d.name)}${d.payer ? ` <small>(${esc(d.payer)})</small>` : ''}</td>${td(M.shortDate(d.due))}${td(brl(d.other ? d.cents : d.mine), 'num')}${td(sit(d))}</tr>`).join('')}
+          </tbody></table></section>` : ''}
+          ${us.length ? `<section><h2>Assinaturas</h2><table><tbody>${us.map((u) => `<tr><td>${esc(u.name)}</td>${td(`${brl(u.cents)}/${u.cycle === 'anual' ? 'ano' : 'mês'}`, 'num')}</tr>`).join('')}
+            <tr class="tot"><td>Total</td>${td(`${brl(us.reduce((a, u) => a + subMonthly(u), 0))}/mês · ${brl(us.reduce((a, u) => a + subYearly(u), 0))}/ano`, 'num')}</tr></tbody></table></section>` : ''}
+          ${ds.length ? `<section><h2>Dívidas</h2><table><thead><tr><th>Dívida</th><th class="num">Parcelas</th><th class="num">Ainda falta</th></tr></thead><tbody>
+            ${ds.map((d) => `<tr><td>${esc(d.name)}</td>${td(`${d.pagas}/${d.total}`, 'num')}${td(d.quitada ? 'quitada' : brl(saldoDe(d)), 'num')}</tr>`).join('')}</tbody></table></section>` : ''}
+          <section><h2>Todos os lançamentos (${list.length})</h2>
+            ${list.length ? `<table class="small-t"><thead><tr><th>Data</th><th>Descrição</th><th>Pagamento</th><th class="num">Valor</th></tr></thead><tbody>
+              ${list.map((r) => `<tr><td>${M.shortDate(M.parse(r.date))}</td><td>${esc(r.desc || M.cat(r.cat).nome)}${r.desc ? ` <small>· ${esc(M.cat(r.cat).nome)}</small>` : ''}</td><td>${esc(r.pay ? M.pay(r.pay).nome : '—')}</td>${td((r.dir === 'out' ? '−' : '+') + brl(r.cents), 'num ' + (r.dir === 'out' ? 'neg' : 'pos'))}</tr>`).join('')}
+            </tbody></table>` : '<p>Nenhum lançamento no mês.</p>'}</section>
+          <footer class="rep-foot">Finanças da Casa · dados guardados só no celular · nada conectado ao banco</footer>
+        </article>
+        <div class="no-print">${X.nav('extrato')}</div></div>`;
+    }
+    function repText() {
+      const key = M.mkey(S.month);
+      const t = totalsOf(key);
+      const cats = Object.entries(t.byCat).sort((a, b) => b[1] - a[1]).slice(0, 3);
+      const dl = dueList(key).filter((d) => d.key === key);
+      const bd = budget(key);
+      return [`📊 ${X.ledgerName()} · ${M.monthName(key)}/${key.slice(0, 4)}`,
+        `Entrou: ${brl(t.inn)}`, `Saiu: ${brl(t.out)}`, `${t.inn - t.out < 0 ? 'Ficou negativo' : 'Sobrou'}: ${brl(t.inn - t.out)}`,
+        cats.length ? `Maiores gastos: ${cats.map(([c, v]) => `${M.cat(c).nome} ${brl(v)}`).join(', ')}` : '',
+        bd.has ? `Orçamento de gastos: ${brl(bd.realOut)} de ${brl(bd.planOut)}` : '',
+        dl.length ? `Contas: ${dl.filter((d) => d.paid).length} pagas, ${dl.filter((d) => !d.paid).length} pendentes` : '',
+        '(Finanças da Casa)'].filter(Boolean).join('\n');
     }
 
     /* ---------- telas de assinaturas ---------- */
@@ -1221,9 +1546,88 @@
         X.toast(X.catFala(X.tone(S.cur), 'apagado'));
       },
       xfilter(d) { S.xfilter = d.v; if (d.v === 'in') S.xpay = ''; X.render(); },
+      xcat(d) { S.xcat = d.v; if (d.v) { S.xfilter = 'todos'; S.xpay = ''; } X.go('extrato'); },
       xpay(d) { S.xpay = S.xpay === d.v ? '' : d.v; if (S.xpay) S.xfilter = 'out'; X.render(); },
       openWallet(d) { S.wd = d.id; S.fk = null; S.wdReturn = 'carteira'; X.go('wdetail'); },
       goContas() { X.go('contas'); },
+      goDividas() { X.go('dividas'); },
+      goRelatorio() { S.repReturn = S.view; X.go('relatorio'); },
+      repBack() { X.go(['resumo', 'home', 'extrato'].includes(S.repReturn) ? S.repReturn : 'home'); },
+      repPrint() { try { window.print(); } catch (e) { X.toast('Não consegui abrir a impressão neste celular.'); } },
+      async repShare() {
+        const text = repText();
+        if (navigator.share) { try { await navigator.share({ title: 'Resumo do mês', text }); return; } catch (e) { if (e.name === 'AbortError') return; } }
+        try { await navigator.clipboard.writeText(text); X.toast('Resumo copiado. Cole no WhatsApp.'); } catch (e) { X.toast('Não consegui copiar.'); }
+      },
+      openDebt(d) { S.dv = d.id; S.dp = null; S.dvReturn = S.view; X.go('divida'); },
+      dvBack() { S.dp = null; X.go(['home', 'contas'].includes(S.dvReturn) ? S.dvReturn : 'dividas'); },
+      dvpay(d) { S.dp.pay = d.v; S.dp.wallet = null; if (d.v === 'credito') { const cs = wallets('cartao'); if (cs.length === 1) S.dp.wallet = cs[0].id; } X.render(); },
+      dvwallet(d) { S.dp.wallet = S.dp.wallet === d.v ? null : d.v; X.render(); },
+      async dvPagar() {
+        const d = S.recs.find((r) => r.id === S.dv); if (!d || d.quitada) return;
+        const n = d.pagas + 1;
+        await put({ id: Sec.uid(), type: 'tx', dir: 'out', cents: d.parcela, cat: 'dividas', pay: S.dp.pay, wallet: S.dp.wallet || null, ess: true, parcelas: 1,
+          desc: `${d.name} · parcela ${n}/${d.total}`, date: today(), debtId: d.id, debtN: n, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+        const upd = { ...d, pagas: n, quitada: n >= d.total, pay: S.dp.pay, wallet: S.dp.wallet || null, saldo: d.saldo ? Math.max(0, d.saldo - d.parcela) : d.saldo };
+        if (upd.quitada) upd.quitadaEm = today();
+        await put(upd);
+        const t = X.tone(S.cur);
+        X.render(); X.celebrate();
+        const f = d.total - n;
+        X.toast(fill(X.catFala(t, upd.quitada ? 'dividaQuitada' : 'parcelaPaga'), { divida: d.name, faltam: f === 1 ? 'Falta 1 parcela' : `Faltam ${f} parcelas` }));
+      },
+      async dvUndo() {
+        const d = S.recs.find((r) => r.id === S.dv); if (!d) return;
+        const last = txs().filter((r) => r.debtId === d.id).sort((a, b) => (b.debtN || 0) - (a.debtN || 0))[0];
+        if (!last) return;
+        const ok = await X.modal({ title: 'Desfazer a última parcela?', html: `<p>A parcela ${last.debtN}/${d.total} sai do extrato e a dívida volta pra ${d.pagas - 1} paga(s).</p>`, buttons: [X.CANCEL, { label: 'Desfazer', value: true, kind: 'danger' }] });
+        if (!ok) return;
+        await del(last.id);
+        await put({ ...d, pagas: Math.max(0, d.pagas - 1), quitada: false, saldo: d.saldo ? d.saldo + d.parcela : d.saldo });
+        X.render();
+      },
+      async dvNeg() {
+        const r = await X.modal({ title: 'Anotar negociação', html: '<p>O que foi combinado? Ex.: "Liguei, ofereceram 30% de desconto à vista. Protocolo 12345."</p>', input: 'O que aconteceu…', buttons: [X.CANCEL, { label: 'Salvar', value: true, kind: 'primary' }] });
+        if (!r.value || !r.text.trim()) return;
+        const d = S.recs.find((x) => x.id === S.dv); if (!d) return;
+        await put({ ...d, negs: (d.negs || []).concat([{ date: new Date().toISOString(), text: r.text.trim().slice(0, 300) }]) });
+        X.render(); X.toast('Negociação anotada.');
+      },
+      newDebt() { S.d = { id: null, kind: 'emprestimo', emo: '🏦', name: '', creditor: '', parcela: 0, total: 0, pagas: 0, juros: null, dueDay: 10, saldo: null, isNew: false }; S.d0 = snapD(S.d); S.dReturn = S.view; X.go('debtform'); },
+      editDebt(dd) { const d = S.recs.find((r) => r.id === dd.id); if (!d) return; S.d = { ...d }; S.d0 = snapD(S.d); S.dReturn = S.view; X.go('debtform'); },
+      disnew(d) { readD(); S.d.isNew = d.v === '1'; X.render(); },
+      dkind(d) { readD(); S.d.kind = d.v; S.d.emo = (DEBT_KINDS.find((x) => x[0] === d.v) || [])[1] || '💸'; X.render(); },
+      async dBack() { readD(); if (!(await leave(snapD(S.d) !== S.d0, 'nesta dívida'))) return; const r = S.dReturn; S.d = null; X.go(r === 'divida' && S.dv ? 'divida' : 'dividas'); },
+      async dsave() {
+        readD();
+        const d = S.d;
+        if (!d.name.trim()) return X.toast('Diga o que é, tipo "Empréstimo".');
+        if (!d.parcela) return X.toast('Coloque o valor da parcela.');
+        if (!d.total || d.pagas > d.total) return X.toast('Confira as parcelas (ex.: 3 pagas de 12).');
+        let startKey = d.startKey;
+        if (!d.id && d.pagas < d.total) {
+          const k = M.mkey(new Date());
+          startKey = k;
+          if (M.dayIn(k, d.dueDay) < M.parse(today())) {
+            const yes = await X.modal({ title: `A parcela de ${M.monthName(k)} já foi paga?`, html: `<p>Ela venceu dia ${d.dueDay}. Se já pagou (e contou nas "já pagas"), ela só volta a aparecer em ${M.monthName(M.addMonths(k, 1))}.</p>`,
+              buttons: [{ label: 'Ainda não', value: false }, { label: 'Já paguei', value: true, kind: 'primary' }] });
+            if (yes) startKey = M.addMonths(k, 1);
+          }
+        }
+        const rec = { ...d, startKey, id: d.id || 'd-' + Sec.uid(), type: 'debt', name: d.name.trim().slice(0, 30), creditor: (d.creditor || '').trim().slice(0, 30), emo: d.emo || '💸',
+          quitada: d.pagas >= d.total, negs: d.negs || [], createdAt: d.createdAt || new Date().toISOString() };
+        await put(rec);
+        S.d = null; S.dv = rec.id;
+        X.go('divida');
+        if (!d.id && d.isNew) X.toast(X.tone(S.cur) === 'debochado' ? 'Dívida nova anotada. O contador voltou pro zero, viu?' : 'Anotada. O contador recomeça, sem problema.');
+      },
+      async ddel() {
+        const ok = await X.modal({ title: `Apagar "${esc(S.d.name)}"?`, html: '<p>Ela some da lista. As parcelas já pagas continuam no extrato.</p>', buttons: [X.CANCEL, { label: 'Apagar', value: true, kind: 'danger' }] });
+        if (!ok) return;
+        await del(S.d.id); S.d = null; S.dv = null; X.go('dividas');
+      },
+      async debtMode(d) { S.cur.prefs.debtMode = d.v; await X.save(S.cur); X.render(); },
+      async debtExtra() { S.cur.prefs.debtExtra = M.parseBRL((document.getElementById('dextra') || {}).value); await X.save(S.cur); X.render(); },
       goResumo() { X.go('resumo'); },
       varSel(d) { S.varSel = d.v; X.render(); },
       goSubs() { S.subsReturn = S.view; X.go('assinaturas'); },
@@ -1285,8 +1689,8 @@
         const key = M.mkey(S.month);
         const pr = planRec(key);
         S.peReturn = S.view;
-        S.pe = { key, out: { ...((pr && pr.out) || {}) }, in: { ...((pr && pr.in) || {}) } };
-        S.pe0 = JSON.stringify([S.pe.out, S.pe.in]);
+        S.pe = { key, out: { ...((pr && pr.out) || {}) }, in: { ...((pr && pr.in) || {}) }, items: JSON.parse(JSON.stringify((pr && pr.items) || {})) };
+        S.pe0 = JSON.stringify([S.pe.out, S.pe.in, S.pe.items]);
         X.go('planedit');
       },
       peBills() {
@@ -1296,6 +1700,17 @@
         Object.entries(by).forEach(([cat, v]) => { S.pe.out[cat] = Math.max(S.pe.out[cat] || 0, v); });
         X.render(); X.toast('Preenchi com o valor das contas fixas.');
       },
+      peDetail(d) {
+        readPE();
+        const cur = S.pe.out[d.cat] || 0;
+        // sugere itens a partir das contas fixas dessa categoria
+        const fromBills = bills().filter((b) => b.cat === d.cat && b.payer !== 'outro').map((b) => ({ name: b.name, cents: myPart(b, b.kind === 'fixa' ? b.cents : billAvg(b, S.pe.key)) }));
+        S.pe.items[d.cat] = fromBills.length ? fromBills : [{ name: '', cents: cur }];
+        X.render();
+      },
+      peItemAdd(d) { readPE(); S.pe.items[d.cat].push({ name: '', cents: 0 }); X.render(); },
+      peItemDel(d) { readPE(); const it = S.pe.items[d.cat]; it.splice(Number(d.i), 1); const sum = it.reduce((a, x) => a + (x.cents || 0), 0); if (sum) S.pe.out[d.cat] = sum; else delete S.pe.out[d.cat]; if (!it.length) delete S.pe.items[d.cat]; X.render(); },
+      peUndetail(d) { readPE(); delete S.pe.items[d.cat]; X.render(); },
       pePrev() {
         readPE();
         const prev = budget(M.addMonths(S.pe.key, -1));
@@ -1305,13 +1720,14 @@
       },
       async peBack() {
         readPE();
-        if (!(await leave(JSON.stringify([S.pe.out, S.pe.in]) !== S.pe0, 'no planejamento'))) return;
+        if (!(await leave(JSON.stringify([S.pe.out, S.pe.in, S.pe.items]) !== S.pe0, 'no planejamento'))) return;
         const r = S.peReturn; S.pe = null; X.go(r === 'orcamento' ? 'orcamento' : 'home');
       },
       async peSave() {
         readPE();
         const pe = S.pe;
-        await put({ id: `plan-${pe.key}`, type: 'plan', key: pe.key, out: pe.out, in: pe.in, updatedAt: new Date().toISOString() });
+        Object.keys(pe.items).forEach((c) => { pe.items[c] = pe.items[c].filter((it) => it.cents || (it.name || '').trim()); if (!pe.items[c].length) delete pe.items[c]; });
+        await put({ id: `plan-${pe.key}`, type: 'plan', key: pe.key, out: pe.out, in: pe.in, items: pe.items, updatedAt: new Date().toISOString() });
         S.pe = null; X.go('orcamento');
         const t = X.tone(S.cur);
         X.toast(t === 'debochado' ? 'Planejamento salvo. Agora é cumprir, hein.' : 'Planejamento salvo! Vou te ajudar a acompanhar.');
@@ -1601,7 +2017,8 @@
     // Botão "voltar" do Android nas telas deste módulo. true = tratado aqui.
     function back() {
       const map = { lancar: 'lancBack', wallet: 'wBack', catform: 'cBack', wdetail: 'wdBack', cardprev: 'cpBack', billform: 'bBack', billpay: 'bpBack', planedit: 'peBack',
-        subform: 'uBack', assinaturas: 'subsBack' };
+        subform: 'uBack', assinaturas: 'subsBack', divida: 'dvBack', debtform: 'dBack', relatorio: 'repBack' };
+      if (S.view === 'dividas') { X.go('home'); return true; }
       if (S.view === 'contas' || S.view === 'orcamento') { X.go('home'); return true; }
       if (S.view === 'resumo') { X.go('extrato'); return true; }
       if (map[S.view]) { Promise.resolve(actions[map[S.view]]()).catch(() => {}); return true; }
@@ -1612,9 +2029,9 @@
       reload, home, moodOnEnter, back, settingsCats, state,
       views: { lancar: vLancar, extrato: vExtrato, carteira: vCarteira, wallet: vWallet, wdetail: vWDetail, catform: vCatForm, cardprev: vPrev,
         contas: vContas, billform: vBillForm, billpay: vBillPay, orcamento: vOrcamento, planedit: vPlanEdit,
-        resumo: vResumo, assinaturas: vSubs, subform: vSubForm },
+        resumo: vResumo, assinaturas: vSubs, subform: vSubForm, dividas: vDividas, divida: vDivida, debtform: vDebtForm, relatorio: vRelatorio, mais: vMais },
       actions,
-      onInput(e) { if (e.target.id === 'fdesc' && S.f) S.f.desc = e.target.value; },
+      onInput(e) { if (e.target.id === 'fdesc' && S.f) S.f.desc = e.target.value; if (e.target.id === 'busca') filterMais(e.target.value); },
       onChange(e) { if (e.target.id === 'fdate' && S.f && e.target.value) { readF(); S.f.date = e.target.value; X.render(); } }
     };
   };

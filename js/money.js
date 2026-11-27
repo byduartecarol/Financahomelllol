@@ -16,6 +16,7 @@
     { id: 'beleza', nome: 'Beleza', emo: '💅', ess: false },
     { id: 'assinaturas', nome: 'Assinaturas', emo: '📺', ess: false },
     { id: 'presentes', nome: 'Presentes', emo: '🎁', ess: false },
+    { id: 'dividas', nome: 'Dívidas e empréstimos', emo: '💸', ess: true },
     { id: 'outros', nome: 'Outros', emo: '📦', ess: false }
   ];
   const CATS_IN = [

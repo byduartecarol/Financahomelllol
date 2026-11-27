@@ -1,7 +1,7 @@
 /* Finanças da Casa — Fase 1, Etapa 1.1
    Perfis estilo Netflix, senha opcional, recuperação, ajustes por perfil, mascotes animados e backup. */
 (function () {
-  const APP_VERSION = '0.8.1 (fase 2 · partes 2 e 3)';
+  const APP_VERSION = '0.9.2 (ajustes)';
   const $app = document.getElementById('app');
 
   const DEFAULT_PROFILES = [
@@ -324,13 +324,13 @@
   }
 
   function nav(active) {
-    const t = (v, ico, label) => `<button class="${active === v ? 'on' : ''}" data-action="tab" data-v="${v}" ${active === v ? 'aria-current="page"' : ''}><span aria-hidden="true">${ico}</span>${label}</button>`;
+    const t = (v, ico, label, also) => { const on = active === v || also; return `<button class="${on ? 'on' : ''}" data-action="tab" data-v="${v}" ${on ? 'aria-current="page"' : ''}><span aria-hidden="true">${ico}</span>${label}</button>`; };
     return `<nav class="tabbar">
       ${t('home', '⌂', 'Início')}${t('extrato', '☰', 'Extrato')}
       ${S.view === 'contas'
         ? '<button class="fab" data-action="newBill" aria-label="Nova conta fixa"><span aria-hidden="true">＋</span>Conta</button>'
         : '<button class="fab" data-action="novo" data-dir="out" aria-label="Lançar gasto"><span aria-hidden="true">＋</span>Lançar</button>'}
-      ${t('carteira', '▭', 'Carteira')}${t('settings', '⚙', 'Ajustes')}
+      ${t('carteira', '▭', 'Carteira')}${t('mais', '☷', 'Mais', active === 'settings')}
     </nav>`;
   }
 
@@ -435,7 +435,7 @@
     const views = { profiles: vProfiles, pin: vPin, code: vCode, recover: vRecover, home: vHome, settings: vSettings, newprofile: vNewProfile, ...L.views };
     if (S.view === 'newprofile' && !S.np) S.view = 'profiles';
     if (!views[S.view] || (L.views[S.view] && !S.cur)) S.view = S.cur ? 'home' : 'profiles';
-    if ((S.view === 'lancar' && !S.f) || (S.view === 'wallet' && !S.w) || (S.view === 'catform' && !S.c) || (S.view === 'wdetail' && !S.wd) || (S.view === 'cardprev' && !S.cp) || (S.view === 'billform' && !S.b) || (S.view === 'billpay' && !S.bp) || (S.view === 'planedit' && !S.pe) || (S.view === 'subform' && !S.u)) S.view = 'home';
+    if ((S.view === 'lancar' && !S.f) || (S.view === 'wallet' && !S.w) || (S.view === 'catform' && !S.c) || (S.view === 'wdetail' && !S.wd) || (S.view === 'cardprev' && !S.cp) || (S.view === 'billform' && !S.b) || (S.view === 'billpay' && !S.bp) || (S.view === 'planedit' && !S.pe) || (S.view === 'subform' && !S.u) || (S.view === 'divida' && !S.dv) || (S.view === 'debtform' && !S.d)) S.view = 'home';
     $app.innerHTML = views[S.view]();
   }
 
@@ -466,7 +466,7 @@
     }
   }
 
-  function toProfiles() { S.cur = null; S.recs = []; S.f = null; S.w = null; S.c = null; S.wd = null; S.cp = null; S.fk = null; S.b = null; S.bp = null; S.pe = null; S.u = null; S.ledgerId = null; Money.setCustom([]); go('profiles'); }
+  function toProfiles() { S.cur = null; S.recs = []; S.f = null; S.w = null; S.c = null; S.wd = null; S.cp = null; S.fk = null; S.b = null; S.bp = null; S.pe = null; S.u = null; S.d = null; S.dv = null; S.ledgerId = null; Money.setCustom([]); go('profiles'); }
 
   /* ---------- senha ---------- */
   async function setPin(p, pin) {
@@ -852,7 +852,8 @@
     if (m) { const b = m.querySelector('[data-i="0"]'); if (b) b.click(); return true; }
     if (L.back()) return true;
     switch (S.view) {
-      case 'extrato': case 'carteira': case 'settings': go('home'); return true;
+      case 'settings': go('mais'); return true;
+      case 'extrato': case 'carteira': case 'mais': go('home'); return true;
       case 'home': toProfiles(); return true;
       case 'pin': A.pinBack(); return true;
       case 'recover': toProfiles(); return true;
@@ -861,10 +862,16 @@
       default: return false;
     }
   }
-  const armBack = () => { try { history.pushState({ fc: 1 }, ''); } catch (e) { /* ignora */ } };
+  // O Chrome do Android PULA entradas de histórico criadas sem toque do usuário. Por isso, além de rearmar
+  // depois de cada "voltar", a armadilha é recriada no primeiro toque seguinte (com gesto = não é pulada).
+  // Guardamos uma "reserva" de 3 entradas criadas no toque, assim vários "voltar" seguidos funcionam.
+  let depth = 0;
+  const armBack = () => { try { while (depth < 3) { history.pushState({ fc: depth + 1 }, ''); depth++; } } catch (e) { /* ignora */ } };
+  document.addEventListener('pointerdown', () => { if (depth < 3) armBack(); }, true);
   window.addEventListener('popstate', () => {
-    if (handleBack()) armBack();
-    else history.back();
+    depth = Math.max(0, depth - 1);
+    if (handleBack()) { if (depth < 1) { try { history.pushState({ fc: 1 }, ''); depth = 1; } catch (e) { /* ignora */ } } }
+    else if (depth > 0) { const n = depth; depth = 0; history.go(-n); } // na tela inicial: o próximo "voltar" sai do app
   });
 
   // Bloqueia de novo se o app ficar 2 minutos em segundo plano (só se o perfil tiver senha).

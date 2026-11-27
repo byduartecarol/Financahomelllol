@@ -4,6 +4,13 @@ App de finanças da casa (perfis "Mãe" e "Eu"), em português, salvo só no cel
 Sem servidor, sem login de banco, sem conexão com banco. Backup por arquivo JSON.
 
 ## Onde paramos
+**Ajustes 0.9.2 (prontos):**
+- Aba **Mais** (no lugar de Ajustes na barra): todas as funções + busca sem acento + ajuda rápida (FAQ).
+- Botão voltar do Android: reserva de 3 entradas criadas no toque; Ajustes → Mais → Início → Perfis → sai.
+- Rosca do Resumo e linhas do Orçamento clicáveis: abrem o Extrato filtrado pela categoria (chip "✕ Todas").
+- Planejamento detalhado: "detalhar em itens" por categoria de gasto (nome + valor); total = soma; sugere as contas fixas da categoria.
+- Dívidas por tipo: Empréstimos/financiamentos, Contas parceladas (carnê, crediário), Acordos. Seção "Parcelados no cartão" só pra consulta (não soma).
+
 **Fase 1 — Etapa 1 (pronta):**
 - Perfis estilo Netflix (Mãe e Eu), dados separados por `profileId`.
 - Senha (PIN 4–6 números) opcional por perfil, guardada só em hash SHA-256 com sal.
@@ -110,8 +117,24 @@ Sem servidor, sem login de banco, sem conexão com banco. Backup por arquivo JSO
   (`tx.subId` + `subKey`). Apagar esse gasto cria `subskip`, pra ele não voltar. Cancelar = `active:false` (o histórico fica).
   Ao cadastrar, se a cobrança deste mês já passou, o app pergunta se lança.
 
-**Próximo (Fase 2 — parte 4):** relatório mensal pra imprimir/PDF ou mandar (incluindo um separado das Finanças da Mãe).
-Depois, a Fase 3 (dívidas, caixinhas, trilha, vontade de comprar, gato investidor). No fim: checklist simples pra mãe.
+**Fase 2 — Parte 4 (pronta) — FASE 2 CONCLUÍDA:**
+- Relatório mensal (`vRelatorio`) do caderno ativo: resumo, orçamento esperado × real, gastos por categoria, contas do mês com
+  situação, assinaturas, dívidas e todos os lançamentos. "Imprimir / salvar PDF" (`window.print` + `@media print`) e
+  "Mandar resumo" (texto curto pelo compartilhar do Android, ou copiado). No caderno administrado: "Finanças da Mãe ·
+  Administradas por Eu. Relatório pra registro e transparência."
+
+**Fase 3 — Parte 1 (pronta): dívidas**
+- `type:'debt'`: parcela, total, já pagas, juros a.m. (opcional), saldo devedor (opcional), vencimento, credor, negociações
+  (`negs`), `isNew` ("fiz agora" zera o contador), `startKey` (se a parcela do mês já foi paga ao cadastrar).
+- Pagar a parcela gera um gasto na categoria "Dívidas e empréstimos" (`tx.debtId`, `debtN`) e comemora. A última parcela
+  marca a dívida como quitada. Dá pra desfazer a última parcela.
+- Parcelas das dívidas entram no checklist "Contas do mês" e no "falta pagar".
+- Plano de quitação: "Menor primeiro" (bola de neve) ou "Maior juros primeiro" (avalanche), com dinheiro extra por mês
+  (`payoffPlan`, aproximado e sem juros), mostrando a ordem, o foco e o mês previsto de quitação.
+- "🏅 X dias sem dívida nova".
+
+**Próximo (Fase 3 — partes 2 e 3):** caixinhas (meta, prazo, progresso) + trilha guiada pelo mascote; "vontade de comprar"
+(anota e pergunta em 24h). **Parte 4:** gato investidor (taxa do Banco Central) + "Aprenda a investir". No fim: checklist pra mãe.
 
 ## Estrutura
 ```
