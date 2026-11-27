@@ -1,7 +1,7 @@
 /* Finanças da Casa — Fase 1, Etapa 1.1
    Perfis estilo Netflix, senha opcional, recuperação, ajustes por perfil, mascotes animados e backup. */
 (function () {
-  const APP_VERSION = '0.2.0 (etapa 1.1)';
+  const APP_VERSION = '0.2.1 (etapa 1.1)';
   const $app = document.getElementById('app');
 
   const DEFAULT_PROFILES = [
@@ -691,8 +691,13 @@
       if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
       go('profiles');
     } catch (e) {
-      $app.innerHTML = `<main class="screen center"><h2 class="h2">Não consegui abrir o banco de dados</h2>
-        <p>Pode ser modo anônimo ou navegador antigo. Abra no Chrome normal.</p><p class="tiny">${esc(e.message || e)}</p></main>`;
+      const dbErr = e && (e.name === 'InvalidStateError' || e.name === 'UnknownError' || /indexeddb|database/i.test(e.message || ''));
+      $app.innerHTML = dbErr
+        ? `<main class="screen center"><h2 class="h2">Não consegui abrir o banco de dados</h2>
+          <p>Pode ser modo anônimo ou navegador antigo. Abra no Chrome normal.</p><p class="tiny">${esc(e.message || e)}</p></main>`
+        : `<main class="screen center"><h2 class="h2">O app está se atualizando</h2>
+          <p>Seus dados estão guardados, nada foi apagado. Feche o app e abra de novo daqui a alguns minutos.</p>
+          <button class="btn primary" onclick="location.reload()">Tentar de novo</button><p class="tiny">${esc(e.message || e)}</p></main>`;
     }
   }
 

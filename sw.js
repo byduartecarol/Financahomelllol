@@ -1,15 +1,15 @@
 // Service worker: guarda os arquivos do app pra funcionar sem internet.
 // IMPORTANTE: a cada nova versão publicada, aumente o número abaixo.
-const VERSION = 'fc-v2';
+const VERSION = 'fc-v3';
 const FILES = [
   './',
   'index.html',
-  'styles.css',
+  'styles.css?v=0.2.1',
   'manifest.webmanifest',
-  'js/db.js',
-  'js/security.js',
-  'js/pets.js',
-  'js/app.js',
+  'js/db.js?v=0.2.1',
+  'js/security.js?v=0.2.1',
+  'js/pets.js?v=0.2.1',
+  'js/app.js?v=0.2.1',
   'icons/icon-192.png',
   'icons/icon-512.png',
   'icons/maskable-512.png'
@@ -32,7 +32,8 @@ self.addEventListener('fetch', (e) => {
   const req = e.request;
   if (req.method !== 'GET' || new URL(req.url).origin !== self.location.origin) return;
   e.respondWith(
-    fetch(req)
+    // no-cache: sempre confere com o servidor se tem arquivo novo (evita misturar versão velha e nova)
+    fetch(req, { cache: 'no-cache' })
       .then((res) => {
         const copy = res.clone();
         caches.open(VERSION).then((c) => c.put(req, copy));
