@@ -344,3 +344,17 @@ select.field { appearance: auto; }
 .card.total.st-bg-atrasada { background: var(--danger); }
 .card.total.st-bg-paga { background: #3c8d6c; }
 .field.money { font-size: 1.3rem; font-weight: 700; }
+
+/* ---------- etapa 4: contas fixas ---------- */
+.due-row { display: flex; align-items: center; gap: 12px; width: 100%; background: none; border: 0; border-top: 1px solid var(--line); padding: 10px 2px; text-align: left; min-height: var(--tap); }
+.tx-list .due-row:first-child { border-top: 0; }
+.due-row .check { flex: none; width: 30px; height: 30px; border-radius: 50%; border: 2.5px solid var(--line); display: grid; place-items: center; font-weight: 900; color: #fff; }
+.due-row .check.on { background: #3c8d6c; border-color: #3c8d6c; }
+.due-row.paid .tx-mid b { text-decoration: line-through; color: var(--muted); }
+.sum3.two-col { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.emo-badge { flex: none; width: 48px; height: 48px; border-radius: 12px; background: var(--bg); display: grid; place-items: center; font-size: 1.5rem; }
+.hist-row { display: flex; justify-content: space-between; padding: 6px 0; border-top: 1px solid var(--line); }
+.hist-row span { text-transform: capitalize; color: var(--muted); }
+.steps { padding-left: 1.2em; margin: 6px 0; }
+.steps li { margin: 6px 0; }
+.card.total .st { align-self: flex-start; margin-bottom: 4px; }

@@ -62,8 +62,20 @@ Sem servidor, sem login de banco, sem conexão com banco. Backup por arquivo JSO
   sem entrada anotada > mês apertado (sobra <10%) > muito não essencial (≥40%) > tudo bem. Cutucar é só brincadeira.
   O tom acolhedor é gentil e honesto: sem culpa, mas sugere "dar uma freada".
 
-**Próxima etapa (Fase 1, etapa 4):** contas fixas (aluguel, internet; luz e água variáveis com média dos últimos meses),
-checklist do mês com status, lembretes 3 dias antes e no dia, exportação .ics pro Google Agenda, e "quanto falta pagar" no Início.
+**Fase 1 — Etapa 4 (pronta):**
+- Contas fixas (`bill`): fixa ou variável. Variável estima pela média dos últimos 3 meses com valor real (`billAvg`),
+  e tem "Chegou a conta: salvar valor sem pagar". Conta nova cujo vencimento deste mês já passou pergunta se já foi paga.
+- Checklist do mês (`dueList`): contas fixas + faturas que vencem no mês, por urgência (atrasada > hoje > em até 3 dias > aberta > paga).
+  No mês atual também mostra pendências atrasadas dos 2 meses anteriores.
+- "Paguei" cria um gasto no extrato (`tx.billId`) e marca `billpay.paidAt`. Desmarcar ou apagar o gasto desfaz o pagamento.
+- Início: "Falta pagar" + contas do mês. Mascote: atrasada (triste/preocupado), vencendo, tudo pago (feliz).
+- Lembretes: exporta .ics pro Google Agenda (2 eventos mensais por conta, às 9h: 3 dias antes e no dia; dias 29-31 viram
+  "último dia do mês"). Notificação do próprio app com ele fechado não é confiável sem servidor, por isso a garantia é a agenda.
+- Reação ao salvar gasto (`reaction`) olha o mês: essencial / não essencial / alto / apertado / virou negativo / já negativo /
+  sem entrada. No debochado, gasto não essencial com o mês negativo deixa o mascote BRAVO.
+
+**Próxima etapa (Fase 1, etapa 5):** "Finanças da Mãe" dentro do perfil Eu: área separada pra renda e contas dela que eu
+administro e pago, sem mostrar nada do perfil privado dela.
 
 ## Estrutura
 ```
