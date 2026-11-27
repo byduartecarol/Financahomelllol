@@ -239,3 +239,8 @@ button { cursor: pointer; }
 .modal-actions .btn { flex: 1; }
 .toast { position: fixed; left: 50%; bottom: calc(96px + env(safe-area-inset-bottom)); transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 12px 18px; border-radius: 14px; z-index: 30; max-width: 90vw; text-align: center; font-weight: 600; transition: opacity .4s; }
 .toast.out { opacity: 0; }
+
+/* Deitado (dormindo): deita com suavidade, cabeça apoiada, sem "cabeceio" */
+.live .pet.lying .all { animation: liedown .8s ease-out; }
+.live .pet.lying.m-dormindo .head { animation: none; transform: none; }
+@keyframes liedown { 0% { transform: translateY(-18px) scale(.9, 1.15); opacity: .6; } 60% { transform: translateY(2px) scale(1.04, .96); opacity: 1; } 100% { transform: none; } }

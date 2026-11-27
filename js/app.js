@@ -1,7 +1,7 @@
 /* Finanças da Casa — Fase 1, Etapa 1.1
    Perfis estilo Netflix, senha opcional, recuperação, ajustes por perfil, mascotes animados e backup. */
 (function () {
-  const APP_VERSION = '0.2.1 (etapa 1.1)';
+  const APP_VERSION = '0.2.3 (etapa 1.1)';
   const $app = document.getElementById('app');
 
   const DEFAULT_PROFILES = [
@@ -17,7 +17,7 @@
     profiles: [], cur: null, view: 'profiles', p: {},
     buf: '', msg: '', shake: false, fala: '', mood: 'normal',
     month: firstOfMonth(new Date()), fails: {}, lockUntil: {}, hiddenAt: 0,
-    taps: [], angryUntil: 0
+    taps: [], angryUntil: 0, lastTouch: Date.now()
   };
 
   /* ---------- utilidades ---------- */
@@ -94,6 +94,10 @@
   // De tempos em tempos o mascote faz algo sozinho (só na tela inicial)
   setInterval(() => {
     if (S.view !== 'home' || document.hidden || !S.cur) return;
+    // App parado por ~45 s: o mascote deita e cochila
+    if ((S.mood === 'feliz' || S.mood === 'normal') && Date.now() - S.lastTouch > 45000) {
+      S.mood = 'dormindo'; S.fala = catFala(tone(S.cur), 'vazio'); render(); return;
+    }
     if (S.mood === 'dormindo' || S.mood === 'bravo' || Math.random() < 0.35) return;
     const box = document.querySelector('#app .petbox');
     if (!box || /act-/.test(box.className)) return;
@@ -632,6 +636,7 @@
     }
   };
 
+  document.addEventListener('pointerdown', () => { S.lastTouch = Date.now(); }, { passive: true });
   $app.addEventListener('click', (e) => {
     const el = e.target.closest('[data-action]');
     if (!el || el.disabled || el.type === 'file' || el.type === 'checkbox') return;

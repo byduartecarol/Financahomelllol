@@ -268,13 +268,10 @@
       <path d="M24 205 Q100 226 176 205" fill="none" stroke="#fff" stroke-width="3" opacity=".35" stroke-dasharray="2 9" stroke-linecap="round"/>`;
   }
 
-  function body(c, acc, withBed) {
+  function body(c, acc) {
     let s = '';
-    if (withBed) s += bed(c, false);
-    else s += `<ellipse cx="100" cy="206" rx="70" ry="9" fill="#000" opacity=".12"/>`;
     if (c.raca === 'lhasa') {
       s += lhasaBody(c, acc);
-      if (withBed) s += bed(c, true);
       return s;
     }
     if (c.raca !== 'lulu') s += tail(c);
@@ -299,7 +296,28 @@
       ? `<g class="claws">${[-8, 0, 8].map((d) => `<path d="M${x + d - 2.5} 184 L${x + d} 175 L${x + d + 2.5} 184Z" fill="#fff" stroke="${INK}" stroke-width="1.5" stroke-linejoin="round"/>`).join('')}</g>` : '';
     const paw = (x, cls) => `<g class="${cls}">${cls === 'paw-r' ? claws(x) : ''}${P(`M${x - 15} 196 Q${x - 16} 182 ${x} 182 Q${x + 16} 182 ${x + 15} 196 Q${x} 203 ${x - 15} 196 Z`, c.paw)}${S(`M${x - 5} 191 v6 M${x + 5} 191 v6`, INK, 2)}</g>`;
     s += paw(80, 'paw-l') + paw(120, 'paw-r');
-    if (withBed) s += bed(c, true);
+    return s;
+  }
+
+  /* ---------- deitado (pãozinho), usado quando dorme ---------- */
+  function lying(c, acc, mood, a) {
+    let s = '';
+    // rabo de trás / costas
+    if (c.raca === 'lhasa') s += `<g class="tail">${P('M150 160 C170 150 178 132 168 120 C162 112 152 116 152 124 C158 126 160 134 154 142 C150 148 146 152 140 156Z', c.base)}</g>`;
+    if (c.raca === 'york') s += `<g class="tail">${T('M160 172 C172 164 176 152 172 142', c.base, 10)}</g>`;
+    // corpo deitado
+    let torso = P(fluff(108, 178, 68, 28, 24, 0.1, 3), c.base) + P(fluff(150, 170, 26, 22, 12, 0.13, 5), c.base);
+    if (c.raca === 'lhasa') torso += S('M60 186 l-2 12 M76 190 l-1 12 M140 190 l1 12 M156 186 l2 12 M120 160 C140 156 156 160 166 168', SHEEN, 2);
+    else torso += `<path d="${fluff(70, 186, 22, 14, 12, 0.18, 6)}" fill="${c.chest}"/>`;
+    if (acc === 'roupinha') torso += P('M92 160 Q128 148 164 162 Q172 180 164 196 Q128 204 92 198 Q86 178 92 160Z', '#8fb9ea') + `<g fill="#fff" opacity=".85"><circle cx="112" cy="172" r="3.5"/><circle cx="136" cy="166" r="3.5"/><circle cx="150" cy="184" r="3"/><circle cx="124" cy="188" r="3"/></g>`;
+    s += `<g class="torso">${torso}</g>`;
+    if (c.raca === 'lulu') s += `<g class="tail">${P(fluff(146, 156, 30, 20, 14, 0.22, 8), c.light)}</g>`;
+    // rabo enrolado na frente (gatos)
+    if (c.sp === 'gato') s += `<g class="tail">${T('M170 186 C186 200 160 210 120 208 C96 207 80 205 70 201', c.base, 13)}</g>`;
+    // cabeça apoiada nas patinhas
+    s += `<g transform="translate(70 158) scale(.86) rotate(-6)">${head(c, mood, a)}</g>`;
+    const paw = (x, y) => P(`M${x - 14} ${y} Q${x - 14} ${y - 10} ${x} ${y - 10} Q${x + 14} ${y - 10} ${x + 14} ${y} Q${x} ${y + 6} ${x - 14} ${y} Z`, c.paw, 2.5);
+    s += `<g class="paw-l">${paw(52, 202)}</g><g class="paw-r">${paw(80, 204)}</g>`;
     return s;
   }
 
@@ -352,8 +370,12 @@
     full({ pet, acc = 'none', mood = 'normal', bed: withBed = true, label = 'Mascote' } = {}) {
       const c = get(pet);
       const a = acc === 'roupinha' || acc === 'coleira' ? 'none' : acc;
-      return `<svg viewBox="0 -22 200 250" role="img" aria-label="${label}" class="pet full m-${mood} sp-${c.sp} r-${c.raca || 'gato'}">
-        <g class="all">${body(c, acc, withBed)}<g transform="translate(100 78)">${head(c, mood, a)}</g></g></svg>`;
+      return `<svg viewBox="0 -22 200 250" role="img" aria-label="${label}" class="pet full m-${mood} sp-${c.sp} r-${c.raca || 'gato'}${mood === 'dormindo' ? ' lying' : ''}">
+        ${withBed ? bed(c, false) : '<ellipse cx="100" cy="206" rx="70" ry="9" fill="#000" opacity=".12"/>'}
+        <g class="all">${mood === 'dormindo'
+          ? `<g transform="translate(0 ${withBed ? -6 : 2})">${lying(c, acc, mood, a)}</g>`
+          : `${body(c, acc)}<g transform="translate(100 78)">${head(c, mood, a)}</g>`}</g>
+        ${withBed ? bed(c, true) : ''}</svg>`;
     }
   };
 })();
