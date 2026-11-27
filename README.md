@@ -4,6 +4,11 @@ App de finanças da casa (perfis "Mãe" e "Eu"), em português, salvo só no cel
 Sem servidor, sem login de banco, sem conexão com banco. Backup por arquivo JSON.
 
 ## Onde paramos
+**Versão 1.0.0 — Fase 3 completa:**
+- **Gato investidor** (`investir`): simulador parado × poupança × renda fixa (% do CDI, IR regressivo) e 10 lições "Aprenda a investir". Só ensina, nunca recomenda.
+  Selic da API pública do Banco Central (SGS série 432), com fonte e data no rodapé; sem internet usa a última guardada (padrão: 13,75%, Copom de 04/11/2026); aviso quando tem mais de 31 dias; dá pra digitar a taxa.
+- Ajustes: botões de adicionar logo abaixo do total; dívida com banco (chips) e conta que paga (aparece na página da conta); dívida "já paga" aparece ✓ no checklist; fatura mostra nº de parcelas; parcelado no crédito sem cartão aparece no checklist; entradas do planejamento detalháveis (`items['in:<cat>']`).
+
 **Fase 3, partes 2 e 3 — versão 0.10.0 (prontas):**
 - **Caixinhas** (`goal` + movimentos `goalmv`): meta, prazo opcional (mês), quanto guardar por mês, trilha em SVG com o mascote andando (0/25/50/75/100%) e falas por etapa nos dois tons; guardar/tirar; concluídas 🏁; sugestão de reserva de emergência = 3× média dos gastos essenciais. Guardar não conta como gasto.
 - **Vontade de comprar** (`wish`): anota, espera 24h, depois "Ainda quero" (abre o lançamento já preenchido e marca comprada ao salvar), "Desisti" (soma no poupado e pode ir pra uma caixinha) ou "esperar mais 24h". Aviso no Início quando passa 24h; lembrete opcional em .ics (sem servidor, sem notificação com app fechado).

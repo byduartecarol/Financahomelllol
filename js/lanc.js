@@ -157,6 +157,7 @@
       return { b, key, bp, real, est, cents, mine: myPart(b, cents), due, st: dueStatus(due, !!(bp && bp.paidAt)), estimated: b.kind === 'variavel' && !real };
     }
     // Tudo que vence no mês (contas fixas + faturas). No mês atual inclui atrasadas dos 2 meses anteriores.
+    const monthsDiff = (a, b) => (Number(b.slice(0, 4)) - Number(a.slice(0, 4))) * 12 + Number(b.slice(5)) - Number(a.slice(5));
     function dueList(key) {
       const keys = key === M.mkey(new Date()) ? [M.addMonths(key, -2), M.addMonths(key, -1), key] : [key];
       const out = [];
@@ -181,13 +182,22 @@
           const fs = faturaStatus(w, k);
           const st = fs.id === 'paga' ? dueStatus(fs.due, true) : fs.id === 'aberta' ? { ...dueStatus(fs.due, false), id: 'aberta', label: `Aberta · fecha ${M.shortDate(fs.close)}` } : dueStatus(fs.due, false);
           if (k !== key && st.id === 'paga') return;
-          out.push({ kind: 'fatura', id: w.id, key: k, name: `Fatura ${w.name}` + (k !== key ? ` (${M.monthName(k)})` : ''), emo: '💳', cents: tot, mine: tot, st, due: fs.due, paid: st.id === 'paga' });
+          const np = faturaItems(w, k).filter((it) => /^Parcela|parcela/.test(it.label || '') || it.kind === 'inst').length;
+          out.push({ kind: 'fatura', id: w.id, key: k, name: `Fatura ${w.name}` + (np ? ` · ${np} parcela${np > 1 ? 's' : ''}` : '') + (k !== key ? ` (${M.monthName(k)})` : ''), emo: '💳', cents: tot, mine: tot, st, due: fs.due, paid: st.id === 'paga' });
         });
+      });
+      // compras parceladas no crédito sem cartão escolhido: não caem em fatura nenhuma, então aparecem aqui
+      txs().filter((r) => r.dir === 'out' && r.pay === 'credito' && (r.parcelas || 1) > 1 && !wallets('cartao').some((w) => w.id === r.wallet)).forEach((r) => {
+        const k0 = M.mkey(M.parse(r.date)); const i = monthsDiff(k0, key);
+        if (i < 0 || i >= r.parcelas) return;
+        const due = M.dayIn(key, Number(r.date.slice(8, 10)));
+        out.push({ kind: 'parc', id: r.id, key, name: `${r.desc || M.cat(r.cat).nome} (parcela ${i + 1}/${r.parcelas})`, emo: '🧾', cents: M.split(r.cents, r.parcelas)[i], mine: M.split(r.cents, r.parcelas)[i],
+          st: { id: 'aberta', label: 'Sem cartão: toque pra escolher' }, due, paid: false });
       });
       const rank = { atrasada: 0, hoje: 1, logo: 2, aberta: 3, paga: 9 };
       return out.sort((a, b) => (rank[a.st.id] ?? 5) - (rank[b.st.id] ?? 5) || a.due - b.due);
     }
-    const dueRow = (d) => `<button class="due-row ${d.paid ? 'paid' : ''}" data-action="${d.kind === 'bill' ? 'openBill' : d.kind === 'debt' ? 'openDebt' : 'openFatura'}" data-id="${esc(d.id)}" data-k="${d.key}">
+    const dueRow = (d) => `<button class="due-row ${d.paid ? 'paid' : ''}" data-action="${d.kind === 'bill' ? 'openBill' : d.kind === 'debt' ? 'openDebt' : d.kind === 'parc' ? 'editTx' : 'openFatura'}" data-id="${esc(d.id)}" data-k="${d.key}">
         <span class="check ${d.paid ? 'on' : ''}" aria-hidden="true">${d.paid ? '✓' : ''}</span>
         <span class="tx-mid"><b>${esc(d.emo)} ${esc(d.name)}</b><small>vence ${M.shortDate(d.due)}${d.payer ? ` · <span class="payer ${d.other ? 'other' : ''}">${esc(d.payer)}</span>` : ''}${d.estimated ? ' · <span class="hint-in">estimado: toque pra informar o valor</span>' : ''}</small></span>
         <span class="fat-r"><b class="${d.other ? 'muted' : ''}">${d.estimated ? '~' : ''}${brl(d.mine !== undefined && !d.other ? d.mine : d.cents)}</b><span class="st st-${d.st.id}">${esc(d.st.label)}</span></span></button>`;
@@ -197,6 +207,8 @@
                dueDay, pay, wallet, quitada, negs:[{date,text}], isNew, createdAt }
        Pagar a parcela cria um gasto (tx.debtId + tx.debtN) e soma 1 em "pagas". */
     const debts = (all) => S.recs.filter((r) => r.type === 'debt' && (all || !r.quitada)).sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+    const bankKey = (t) => String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const debtsOfWallet = (w) => debts().filter((d) => d.wallet === w.id || (d.creditor && M.BANCOS.some((b) => bankKey(d.creditor) === bankKey(b) && bankKey(w.name).includes(bankKey(b)))));
     const DEBT_KINDS = [['emprestimo', '🏦', 'Empréstimos e financiamentos'], ['parcelado', '🧾', 'Contas parceladas (carnê, crediário…)'], ['acordo', '🤝', 'Acordos e renegociações']];
     // Parcelados no CARTÃO que ainda têm parcelas pela frente (só pra consulta: já estão nas faturas)
     function cardInstallments() {
@@ -220,8 +232,10 @@
     }
     const restantes = (d) => Math.max(0, d.total - d.pagas);
     const saldoDe = (d) => d.saldo && d.saldo > 0 ? d.saldo : d.parcela * restantes(d);
-    const debtPaidIn = (d, key) => txs().find((r) => r.debtId === d.id && String(r.date).slice(0, 7) === key);
-    const debtStart = (d) => d.startKey || M.mkey(new Date(d.createdAt || Date.now()));
+    const debtPaidIn = (d, key) => txs().find((r) => r.debtId === d.id && String(r.date).slice(0, 7) === key)
+      || ((d.paidKeys || []).includes(key) || (d.startKey && key < d.startKey) ? { prepaid: true } : null);
+    // começa no mês em que foi cadastrada (versões antigas pulavam o mês quando ela "já estava paga")
+    const debtStart = (d) => { const cm = M.mkey(new Date(d.createdAt || Date.now())); return d.startKey && d.startKey < cm ? d.startKey : cm; };
     // Dias sem dívida nova: desde a última dívida marcada como "fiz agora" (ou desde que começou a anotar dívidas)
     function diasSemDivida() {
       const all = debts(true);
@@ -256,11 +270,11 @@
       const tx = txs().filter((r) => String(r.date).slice(0, 7) === key);
       const realBy = (dir) => { const m = {}; tx.filter((r) => r.dir === dir).forEach((r) => { m[r.cat] = (m[r.cat] || 0) + r.cents; }); return m; };
       const rOut = realBy('out'), rIn = realBy('in');
-      const rows = (pl, re) => [...new Set([...Object.keys(pl).filter((k) => pl[k] > 0), ...Object.keys(re)])]
-        .map((cat) => ({ cat, c: M.cat(cat), plan: pl[cat] || 0, real: re[cat] || 0, items: pItems[cat] || [] }))
+      const rows = (pl, re, pre = '') => [...new Set([...Object.keys(pl).filter((k) => pl[k] > 0), ...Object.keys(re)])]
+        .map((cat) => ({ cat, c: M.cat(cat), plan: pl[cat] || 0, real: re[cat] || 0, items: pItems[pre + cat] || [] }))
         .sort((a, b) => (b.plan || b.real) - (a.plan || a.real));
       const tot = (o) => Object.values(o).reduce((a, v) => a + (v || 0), 0);
-      return { has: !!pr, inherited: pr && pr.key !== key ? pr.key : null, out: rows(pOut, rOut), inn: rows(pIn, rIn),
+      return { has: !!pr, inherited: pr && pr.key !== key ? pr.key : null, out: rows(pOut, rOut), inn: rows(pIn, rIn, 'in:'),
         planOut: tot(pOut), planIn: tot(pIn), realOut: tot(rOut), realIn: tot(rIn) };
     }
     const pctCls = (real, plan, income) => !plan ? 'none' : income ? (real >= plan ? 'ok' : 'low') : real > plan ? 'over' : real >= plan * 0.8 ? 'near' : 'ok';
@@ -563,12 +577,13 @@
         <main class="content">
           ${X.ledgerBar()}
           <p class="small">São só nomes pra organizar seus lançamentos. O app <b>nunca</b> se conecta ao banco.</p>
+          <div class="add-row add-top"><button class="btn primary" data-action="newWallet" data-kind="conta">＋ Conta</button><button class="btn primary" data-action="newWallet" data-kind="cartao">＋ Cartão</button></div>
           <section class="card"><h3>Contas</h3>
             ${contas.length ? contas.map(row).join('') : '<p class="empty">Nenhuma conta ainda. Ex.: Conta Nubank, Poupança Caixa.</p>'}
-            <button class="btn wide" data-action="newWallet" data-kind="conta">＋ Adicionar conta</button></section>
+</section>
           <section class="card"><h3>Cartões de crédito</h3>
             ${cards.length ? cards.map(row).join('') : '<p class="empty">Nenhum cartão ainda.</p>'}
-            <button class="btn wide" data-action="newWallet" data-kind="cartao">＋ Adicionar cartão</button></section>
+</section>
           <section class="card"><h3>Formas de pagamento <span class="tiny">· ${X.monthLabel(S.month).split(' de ')[0].toLowerCase()}</span></h3>
             ${M.PAYS.map((p) => `<button class="w-row" data-action="payGo" data-v="${p.id}"><span class="w-ico" aria-hidden="true">${p.emo}</span>
               <span class="tx-mid"><b>${p.nome}</b><small>${mt.filter((r) => r.pay === p.id && r.dir === 'out').length} gasto(s) no mês</small></span>
@@ -721,19 +736,20 @@
       const val = (c) => c ? (c / 100).toFixed(2).replace('.', ',') : '';
       const row = (dir, c) => {
         const cur = (dir === 'out' ? pe.out : pe.in)[c.id] || 0;
-        const items = pe.items[c.id];
+        const ik = (dir === 'in' ? 'in:' : '') + c.id;
+        const items = pe.items[ik];
         if (items) {
           const sum = items.reduce((a, it) => a + (it.cents || 0), 0);
           return `<div class="pe-group"><div class="pe-row"><label><span>${esc(c.emo)} ${esc(c.nome)}</span><small>detalhado em ${items.length} item(ns)</small></label><b class="pe-sum">${brl(sum)}</b></div>
-            ${items.map((it, i) => `<div class="pe-item"><input class="field" data-it="${esc(c.id)}" data-i="${i}" data-k="name" maxlength="30" value="${esc(it.name)}" placeholder="Ex.: Aluguel">
-              <input class="field money sm" data-it="${esc(c.id)}" data-i="${i}" data-k="cents" inputmode="decimal" placeholder="0,00" value="${val(it.cents)}">
-              <button class="icon-btn x" data-action="peItemDel" data-cat="${esc(c.id)}" data-i="${i}" aria-label="Tirar item">✕</button></div>`).join('')}
-            <div class="row"><button class="link" data-action="peItemAdd" data-cat="${esc(c.id)}">＋ item</button><button class="link" data-action="peUndetail" data-cat="${esc(c.id)}" data-dir="${dir}">usar valor único</button></div></div>`;
+            ${items.map((it, i) => `<div class="pe-item"><input class="field" data-it="${esc(ik)}" data-i="${i}" data-k="name" maxlength="30" value="${esc(it.name)}" placeholder="${dir === 'in' ? 'Ex.: Salário' : 'Ex.: Aluguel'}">
+              <input class="field money sm" data-it="${esc(ik)}" data-i="${i}" data-k="cents" inputmode="decimal" placeholder="0,00" value="${val(it.cents)}">
+              <button class="icon-btn x" data-action="peItemDel" data-cat="${esc(ik)}" data-i="${i}" aria-label="Tirar item">✕</button></div>`).join('')}
+            <div class="row"><button class="link" data-action="peItemAdd" data-cat="${esc(ik)}">＋ item</button><button class="link" data-action="peUndetail" data-cat="${esc(ik)}" data-dir="${dir}">usar valor único</button></div></div>`;
         }
         const hint = [prevOf(dir === 'out' ? prev.out : prev.inn, c.id) ? `mês passado ${brl(prevOf(dir === 'out' ? prev.out : prev.inn, c.id))}` : '',
           dir === 'out' && billsBy[c.id] ? `contas fixas ${brl(billsBy[c.id])}` : ''].filter(Boolean).join(' · ');
         return `<div class="pe-row"><label for="pe-${dir}-${esc(c.id)}"><span>${esc(c.emo)} ${esc(c.nome)}</span>${hint ? `<small>${hint}</small>` : ''}
-            ${dir === 'out' ? `<button class="link tiny-link" data-action="peDetail" data-cat="${esc(c.id)}">detalhar em itens</button>` : ''}</label>
+            <button class="link tiny-link" data-action="peDetail" data-cat="${esc(ik)}">detalhar em itens</button></label>
           <input class="field money sm" id="pe-${dir}-${esc(c.id)}" data-dir="${dir}" data-cat="${esc(c.id)}" inputmode="decimal" placeholder="0,00" value="${val(cur)}"></div>`;
       };
       return `<div class="page form-page">
@@ -754,7 +770,10 @@
         const it = (S.pe.items[i.dataset.it] || [])[Number(i.dataset.i)]; if (!it) return;
         if (i.dataset.k === 'name') it.name = i.value; else it.cents = M.parseBRL(i.value);
       });
-      Object.entries(S.pe.items).forEach(([cat, items]) => { const sum = items.reduce((a, it) => a + (it.cents || 0), 0); if (sum) S.pe.out[cat] = sum; else delete S.pe.out[cat]; });
+      Object.entries(S.pe.items).forEach(([k, items]) => {
+        const isIn = k.startsWith('in:'), cat = isIn ? k.slice(3) : k, tgt = isIn ? S.pe.in : S.pe.out;
+        const sum = items.reduce((a, it) => a + (it.cents || 0), 0); if (sum) tgt[cat] = sum; else delete tgt[cat];
+      });
       document.querySelectorAll('.pe-row input[data-cat]').forEach((i) => {
         const v = M.parseBRL(i.value);
         const o = i.dataset.dir === 'out' ? S.pe.out : S.pe.in;
@@ -944,13 +963,14 @@
           <section class="card total"><span>Guardado nas caixinhas</span><strong>${brl(total)}</strong>
             <span class="sub">${gs.length} caixinha(s) em andamento${done.length ? ` · ${done.length} concluída(s) 🏁` : ''}</span>
             ${gave.length ? `<span class="sub">🛒 Desistindo de compras você já poupou ${brl(gave.reduce((a, w) => a + w.cents, 0))}</span>` : ''}</section>
+          <button class="btn primary wide add-top" data-action="newGoal">＋ Nova caixinha</button>
           ${gs.length ? `<section class="card"><h3>Em andamento</h3>${gs.map(goalRow).join('')}</section>`
             : done.length ? `<section class="card guide"><div class="guide-pet">${faceOf('feliz')}</div><div><b>Nenhuma caixinha em andamento</b><p>Já bateu ${done.length} meta(s)! Bora pra próxima?</p></div></section>`
             : `<section class="card guide"><div class="guide-pet">${faceOf('feliz')}</div><div><b>Comece pela reserva de emergência</b>
               <p>${em ? `É o dinheiro pra imprevisto. Uma boa meta é 3 meses dos seus gastos essenciais: uns <b>${brl(em * 3)}</b>.` : 'É o dinheiro pra imprevisto. Uma boa meta é guardar 3 meses dos gastos essenciais da casa.'}</p>
               <button class="btn primary" data-action="newGoal" data-sug="Reserva de emergência" data-emo="🛡️" data-target="${em * 3}">Criar reserva</button></div></section>`}
-          <button class="btn wide" data-action="newGoal">＋ Nova caixinha</button>
           ${done.length ? `<section class="card soft"><h3>Concluídas 🏁</h3>${done.map(goalRow).join('')}</section>` : ''}
+          <button class="btn wide" data-action="goInvestir">🐱 Quanto isso poderia render?</button>
           <p class="tiny">Caixinha aqui é uma anotação: o dinheiro de verdade fica onde você guardar (poupança, caixinha do banco…). Guardar não conta como gasto.</p>
         </main>${X.nav('mais')}</div>`;
     }
@@ -1056,6 +1076,107 @@
       return '';
     }
 
+    /* ---------- gato investidor + aprenda a investir (só ensina, nunca recomenda) ---------- */
+    const TAXA_PADRAO = { selic: 13.75, data: '2026-11-04', fonte: 'padrao' }; // Copom de 04/11/2026
+    const taxa = () => (S.cur.prefs.taxa && S.cur.prefs.taxa.selic ? S.cur.prefs.taxa : TAXA_PADRAO);
+    const taxaVelha = (t) => (M.parse(today()) - M.parse(t.data)) / 86400000 > 31;
+    async function buscarTaxa(manual) {
+      const ctl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+      const tm = setTimeout(() => ctl && ctl.abort(), 8000);
+      try {
+        const r = await fetch('https://api.bcb.gov.br/dados/serie/bcdata.sgs.432/dados/ultimos/1?formato=json', { signal: ctl ? ctl.signal : undefined, cache: 'no-store' });
+        const j = await r.json();
+        const v = parseFloat(String(j[0].valor).replace(',', '.'));
+        const [dd, mm, yy] = String(j[0].data).split('/');
+        if (!(v > 0 && v < 100) || !yy) throw new Error('resposta estranha');
+        S.cur.prefs.taxa = { selic: v, data: `${yy}-${mm}-${dd}`, fonte: 'bcb', checkedAt: new Date().toISOString() };
+        await X.save(S.cur);
+        if (manual) X.toast(`Taxa atualizada: Selic ${String(v).replace('.', ',')}% (Banco Central).`);
+        return true;
+      } catch (e) {
+        if (manual) X.toast('Sem internet ou o site do Banco Central não respondeu. Usando a última taxa guardada.');
+        return false;
+      } finally { clearTimeout(tm); }
+    }
+    function ratesFrom(selic) {
+      const cdi = Math.max(0, selic - 0.10);
+      const mPoup = selic > 8.5 ? 0.005 : Math.pow(1 + 0.7 * selic / 100, 1 / 12) - 1;
+      const mCdi = Math.pow(1 + cdi / 100, 1 / 12) - 1;
+      return { cdi, mPoup, mCdi };
+    }
+    const irDe = (meses) => meses <= 6 ? 0.225 : meses <= 12 ? 0.20 : meses <= 24 ? 0.175 : 0.15;
+    function simular(ini, mensal, meses, pct, selic) {
+      const r = ratesFrom(selic), mRF = r.mCdi * pct / 100;
+      let poup = ini, rf = ini;
+      for (let i = 0; i < meses; i++) { poup = poup * (1 + r.mPoup) + mensal; rf = rf * (1 + mRF) + mensal; }
+      const posto = ini + mensal * meses;
+      const rfLiq = posto + (rf - posto) * (1 - irDe(meses));
+      return { posto, poup: Math.round(poup), rf: Math.round(rfLiq), ir: irDe(meses), r };
+    }
+    const INV = {
+      debochado: { oi: 'Eu sou o gato investidor. Não recomendo nada: eu só faço conta. Quem decide é você, depois de entender.',
+        divida: 'Antes de sonhar com rendimento: você tem dívida aberta. Juros de dívida quase sempre comem qualquer rendimento no café da manhã.',
+        reserva: 'Sem reserva de emergência ainda? A maioria dos guias começa por ela. Dá uma olhada na lição 1.',
+        parado: 'Dinheiro parado na conta é dinheiro tirando soneca. Olha a diferença aí embaixo.' },
+      acolhedor: { oi: 'Oi! Vou te mostrar como o dinheiro pode crescer com o tempo. Aqui é pra aprender, não é recomendação, tá?',
+        divida: 'Uma coisa importante: você tem dívidas em aberto. Os juros delas costumam ser maiores que o rendimento de qualquer aplicação. Veja a lição 2 com calma.',
+        reserva: 'Muita gente começa pela reserva de emergência. A lição 1 explica bem direitinho.',
+        parado: 'Olha como até um valor pequeno muda com o tempo. Dá uma olhada nas barrinhas.' }
+    };
+    const iv = (k) => (INV[X.tone(S.cur)] || INV.acolhedor)[k];
+    const LICOES = [
+      ['1. Reserva de emergência vem primeiro', 'É o dinheiro pra imprevisto: geladeira quebrou, ficou sem renda, remédio. A ideia comum é juntar de 3 a 6 meses dos gastos essenciais da casa, num lugar seguro e que dá pra tirar no mesmo dia (liquidez diária). Aqui no app, a caixinha "Reserva de emergência" ajuda a acompanhar.'],
+      ['2. Dívida cara antes de investir', 'Rotativo do cartão, cheque especial e muitos empréstimos cobram juros bem maiores do que qualquer aplicação rende. Na maioria das vezes, quitar ou renegociar essas dívidas "rende" mais do que investir. A tela Dívidas mostra um plano pra quitar.'],
+      ['3. Os três pesos: segurança, liquidez e rendimento', 'Segurança é o risco de perder. Liquidez é a rapidez pra tirar o dinheiro. Rendimento é quanto ganha. Quase nunca dá pra ter os três no máximo ao mesmo tempo: quem promete tudo isso junto merece desconfiança.'],
+      ['4. Poupança', 'Quando a Selic está acima de 8,5% ao ano, rende 0,5% ao mês + TR (uma taxa pequena). Abaixo disso, rende 70% da Selic. Não tem imposto de renda, mas o rendimento cai só no "aniversário" (o dia do mês em que você depositou).'],
+      ['5. Tesouro Selic', 'É um título do governo federal: você empresta dinheiro pro governo. Acompanha a taxa Selic, dá pra resgatar em qualquer dia útil e é considerado o investimento de menor risco do país. Tem imposto de renda pela tabela regressiva e pode ter taxa de custódia da B3 (confira no site oficial tesourodireto.com.br).'],
+      ['6. CDB, RDB e as "caixinhas" dos bancos', 'Você empresta dinheiro pro banco e ele paga uma porcentagem do CDI (ex.: 100% do CDI). Muitas "caixinhas" e "cofrinhos" de banco digital são CDBs ou RDBs por baixo. Têm a garantia do FGC (veja a lição 8). Repare se tem liquidez diária ou se o dinheiro fica preso até uma data.'],
+      ['7. Imposto de renda na renda fixa', 'CDB, RDB e Tesouro pagam IR só sobre o que rendeu, e a alíquota cai com o tempo: 22,5% até 180 dias, 20% de 181 a 360 dias, 17,5% de 361 a 720 dias e 15% acima de 720 dias. Tirando antes de 30 dias ainda tem IOF. LCI e LCA são isentas de IR pra pessoa física, mas costumam ter um prazo mínimo antes de poder resgatar.'],
+      ['8. FGC, a rede de proteção', 'Se um banco quebrar, o Fundo Garantidor de Créditos devolve até R$ 250 mil por CPF em cada instituição (ou grupo de bancos), com limite de R$ 1 milhão a cada 4 anos. Cobre poupança, conta, CDB, RDB, LCI e LCA. Tesouro Direto não precisa: a garantia é do governo.'],
+      ['9. Renda variável (ações, fundos imobiliários)', 'O valor sobe e desce todo dia e pode dar prejuízo. Costuma fazer sentido só pra dinheiro que pode ficar parado por muitos anos, e depois da reserva pronta. Estude bastante antes.'],
+      ['10. Como reconhecer golpe', 'Desconfie de: rendimento alto "garantido", pressa ("só hoje"), pedido de Pix pra pessoa física, "robô que ganha sozinho", e quem pede pra você chamar amigos. Antes de investir, confira se a empresa é autorizada pelo Banco Central ou pela CVM. Ninguém sério pede sua senha do banco.']
+    ];
+    function vInvestir() {
+      const t = taxa(), velha = taxaVelha(t);
+      const sim = S.sim || (S.sim = { ini: goals(true).reduce((a, g) => a + savedOf(g), 0), mensal: 10000, meses: 12, pct: 100 });
+      const res = simular(sim.ini, sim.mensal, sim.meses, sim.pct, t.selic);
+      const max = Math.max(res.posto, res.poup, res.rf, 1);
+      const bar = (lbl, v, cls) => `<div class="inv-bar"><span>${lbl}</span><div class="inv-track"><div class="inv-fill ${cls}" style="width:${Math.max(3, v / max * 100).toFixed(1)}%"></div></div><b>${brl(v)}</b></div>`;
+      const fala = debts().length ? iv('divida') : !goals(true).some((g) => /reserva|emerg/i.test(g.name)) ? iv('reserva') : iv('parado');
+      const v = (c) => c ? (c / 100).toFixed(2).replace('.', ',') : '';
+      const dt = M.parse(t.data).toLocaleDateString('pt-BR');
+      return `<div class="page">
+        <header class="topbar"><button class="icon-btn" data-action="invBack">‹ Voltar</button><div class="who"><small>Aprender, não recomendar</small><b>Gato investidor</b></div></header>
+        <main class="content">
+          <section class="card guide"><div class="guide-pet">${Pet.face({ pet: S.cur.pet, acc: 'oculos', mood: 'feliz', label: 'Mascote investidor' })}</div><div><b>${esc(iv('oi'))}</b><p>${esc(fala)}</p></div></section>
+          <div class="seg">${btns('invTab', [['sim', '🧮 Simular'], ['aprenda', '📚 Aprenda a investir']], S.invTab || 'sim', '')}</div>
+          ${(S.invTab || 'sim') === 'sim' ? `
+          <section class="card">
+            <label class="lbl" for="sini">Quanto já tem guardado</label><input class="field money" id="sini" inputmode="decimal" placeholder="0,00" value="${v(sim.ini)}">
+            <label class="lbl" for="smen">Quanto vai guardar por mês</label><input class="field money" id="smen" inputmode="decimal" placeholder="0,00" value="${v(sim.mensal)}">
+            <label class="lbl">Por quanto tempo</label><div class="chips">${btns('simMeses', [[6, '6 meses'], [12, '1 ano'], [24, '2 anos'], [60, '5 anos']], sim.meses)}</div>
+            <label class="lbl">Renda fixa que paga</label><div class="chips">${btns('simPct', [[90, '90% do CDI'], [100, '100% do CDI'], [110, '110% do CDI']], sim.pct)}</div>
+            <button class="btn primary wide" data-action="simCalc">Calcular</button>
+          </section>
+          <section class="card"><h3>Depois de ${sim.meses >= 12 && sim.meses % 12 === 0 ? `${sim.meses / 12} ano${sim.meses > 12 ? 's' : ''}` : `${sim.meses} meses`}</h3>
+            ${bar('💤 Parado na conta', res.posto, 'p0')}${bar('🐷 Poupança', res.poup, 'p1')}${bar(`🏦 Renda fixa ${sim.pct}% do CDI <small>(já sem o IR de ${String(res.ir * 100).replace('.', ',')}%)</small>`, res.rf, 'p2')}
+            <p class="small">Rendimento: poupança <b>+${brl(res.poup - res.posto)}</b> · renda fixa <b>+${brl(res.rf - res.posto)}</b> (líquido).</p>
+            <p class="tiny">Conta aproximada, considerando a taxa de hoje parada o tempo todo (na vida real ela muda). Poupança sem a TR. CDI estimado como Selic − 0,10. Não é recomendação de investimento.</p></section>` : `
+          <section class="card">${LICOES.map(([q, a]) => `<details class="faq"><summary>${q}</summary><p>${a}</p></details>`).join('')}
+            <p class="tiny">Conteúdo educativo, conferido em novembro de 2026. Regras de imposto e garantias podem mudar: confira sempre nos sites oficiais. O app nunca indica onde investir.</p></section>`}
+          <section class="card soft taxa-box">
+            <p class="small">📈 Selic: <b>${String(t.selic).replace('.', ',')}% ao ano</b> · ${t.fonte === 'bcb' ? 'Banco Central' : t.fonte === 'manual' ? 'digitada por você' : 'valor guardado no app'}, de ${dt}</p>
+            ${velha ? '<p class="small warn">⚠️ Essa taxa tem mais de um mês. Atualize pra conta ficar certa.</p>' : ''}
+            <div class="wish-btns"><button class="link" data-action="taxaAtualizar">🔄 Atualizar pela internet</button><button class="link" data-action="taxaManual">✏️ Digitar a taxa</button></div>
+            <p class="tiny">Fonte: API pública do Banco Central (série 432, meta da Selic). O app só lê esse número: não manda nada seu pra lugar nenhum.</p></section>
+        </main>${X.nav('mais')}</div>`;
+    }
+    function readSim() {
+      if (!S.sim) return;
+      const a = document.getElementById('sini'); if (a) S.sim.ini = M.parseBRL(a.value);
+      const b = document.getElementById('smen'); if (b) S.sim.mensal = M.parseBRL(b.value);
+    }
+
     /* ---------- menu "Mais": todas as funções + busca + ajuda ---------- */
     const FEATURES = [
       ['goContas', '🧾', 'Contas do mês', 'Checklist de aluguel, luz, água, faturas; marcar como paga', 'contas fixas checklist vencimento luz agua aluguel falta pagar'],
@@ -1065,6 +1186,7 @@
       ['goDividas', '💸', 'Dívidas', 'Empréstimos, contas parceladas, acordos e plano pra quitar', 'divida emprestimo parcelado carne crediario acordo quitar'],
       ['goCaixinhas', '🐷', 'Caixinhas', 'Metas pra guardar dinheiro com prazo e trilha', 'caixinha meta guardar poupar reserva emergencia objetivo economizar'],
       ['goVontades', '🛒', 'Vontade de comprar', 'Anota, espera 24h e decide com calma', 'vontade comprar desejo impulso 24h esperar compra'],
+      ['goInvestir', '🐱', 'Gato investidor', 'Simulador (poupança × renda fixa) e Aprenda a investir', 'investir investimento rendimento poupanca cdb tesouro selic cdi render aprender aprenda'],
       ['goSubs', '📺', 'Assinaturas', 'Netflix, Spotify… total por mês e por ano, teste grátis', 'assinatura streaming netflix spotify teste gratis'],
       ['tab:carteira', '💳', 'Carteira', 'Contas, cartões e faturas; gastos por Pix, débito…', 'cartao fatura conta banco pix debito credito dinheiro'],
       ['tab:extrato', '☰', 'Extrato', 'Todos os lançamentos do mês, filtros', 'extrato lancamentos gastos receitas lista'],
@@ -1080,6 +1202,7 @@
       ['Como recebo lembrete das contas?', 'Contas do mês → Mandar pro Google Agenda. Ele avisa 3 dias antes e no dia, mesmo com o app fechado.'],
       ['Guardar na caixinha conta como gasto?', 'Não. A caixinha é só uma anotação de quanto você separou pra uma meta. O dinheiro de verdade fica onde você guardar.'],
       ['Como funciona a vontade de comprar?', 'Anote o que quer e o preço. Depois de 24h o app pergunta se ainda quer. Se desistir, o valor entra no "poupado" e pode ir pra uma caixinha.'],
+      ['O app diz onde investir?', 'Não. O Gato investidor só faz contas e ensina o básico. A taxa Selic vem da API pública do Banco Central (o app só lê o número).'],
       ['Esqueci a senha. E agora?', 'Na tela da senha, toque em "Esqueci a senha" e use o código de recuperação que apareceu quando a senha foi criada.']
     ];
     function vMais() {
@@ -1125,6 +1248,9 @@
             <span class="sub">${ds.length ? `${brl(mensal)} por mês em parcelas · ${ds.length} dívida(s)` : quit.length ? `${quit.length} dívida(s) quitada(s) 🎉` : 'Que maravilha!'}</span>
             ${dias !== null ? `<span class="bal">🏅 <b>${dias}</b> dia${dias === 1 ? '' : 's'} sem dívida nova</span>` : ''}
           </section>
+          <button class="btn primary wide add-top" data-action="newDebt">＋ Nova dívida</button>
+          ${(() => { const byB = {}; ds.filter((d) => d.creditor).forEach((d) => { byB[d.creditor] = (byB[d.creditor] || 0) + saldoDe(d); });
+            const ks = Object.keys(byB); return ks.length > 1 ? `<p class="small">Por credor: ${ks.sort((a, b) => byB[b] - byB[a]).map((k) => `${esc(k)} ${brl(byB[k])}`).join(' · ')}</p>` : ''; })()}
           ${(() => {
             const row = (d) => {
               const pct = Math.round(d.pagas / d.total * 100);
@@ -1138,7 +1264,7 @@
             return (groups.length ? groups.map((g) => `<section class="card"><h3>${g.emo} ${g.title}</h3>${g.list.map(row).join('')}
                 <small class="bud-note">Total: ${brl(g.list.reduce((a, d) => a + saldoDe(d), 0))} · ${brl(g.list.reduce((a, d) => a + d.parcela, 0))}/mês</small></section>`).join('')
               : '<section class="card"><h3>Minhas dívidas</h3><p class="empty">Aqui entram empréstimos, contas parceladas fora do cartão (carnê, crediário) e acordos. Compra parcelada no cartão não: ela já está na fatura.</p></section>')
-              + '<button class="btn wide" data-action="newDebt">＋ Nova dívida</button>';
+              ;
           })()}
           ${(() => {
             const ci = cardInstallments(); if (!ci.length) return '';
@@ -1165,7 +1291,7 @@
       const paid = debtPaidIn(d, key);
       const pct = Math.round(d.pagas / d.total * 100);
       const cards = wallets('cartao'), contas = wallets('conta');
-      const P = S.dp || { pay: d.pay || S.cur.prefs.lastPay || 'pix', wallet: d.wallet || null };
+      const P = S.dp || { pay: d.pay || (d.wallet ? 'pix' : S.cur.prefs.lastPay || 'pix'), wallet: d.wallet || null };
       S.dp = P;
       const hist = txs().filter((r) => r.debtId === d.id).sort((a, b) => b.date.localeCompare(a.date));
       return `<div class="page form-page">
@@ -1202,7 +1328,11 @@
           <label class="lbl">Tipo</label>
           <div class="seg col3">${btns('dkind', DEBT_KINDS.map(([k, e, t]) => [k, `${e} ${t.split(' (')[0].replace(' e financiamentos', '').replace(' e renegociações', '')}`]), d.kind || 'emprestimo', '')}</div>
           <label class="lbl" for="dname">O que é?</label><input class="field" id="dname" maxlength="30" value="${esc(d.name)}" placeholder="Ex.: Empréstimo, acordo do cartão">
-          <label class="lbl" for="dcred">Com quem? <span class="tiny">(opcional)</span></label><input class="field" id="dcred" maxlength="30" value="${esc(d.creditor || '')}" placeholder="Ex.: Banco, loja, parente">
+          <label class="lbl" for="dcred">Com quem? (banco, loja, pessoa) <span class="tiny">(opcional)</span></label><input class="field" id="dcred" maxlength="30" value="${esc(d.creditor || '')}" placeholder="Ex.: Nubank, Casas Bahia, tia">
+          <div class="chips sugs">${M.BANCOS.map((b) => `<button class="chip sm ${d.creditor === b ? 'on' : ''}" data-action="dbank" data-v="${esc(b)}">${esc(b)}</button>`).join('')}</div>
+          ${wallets('conta').length ? `<label class="lbl" for="dwal">Paga com qual conta? <span class="tiny">(opcional)</span></label>
+            <select class="field" id="dwal"><option value="">—</option>${wallets('conta').map((w) => `<option value="${esc(w.id)}" ${d.wallet === w.id ? 'selected' : ''}>${esc(w.name)}</option>`).join('')}</select>
+            <p class="tiny">A dívida aparece na página dessa conta, e o pagamento já vem com ela escolhida.</p>` : ''}
           <label class="lbl" for="dparc">Valor da parcela</label><input class="field money" id="dparc" inputmode="decimal" placeholder="Ex.: 250,00" value="${v(d.parcela)}">
           <div class="two">
             <div><label class="lbl" for="dtot">Total de parcelas</label><input class="field" id="dtot" type="number" inputmode="numeric" min="1" max="600" value="${d.total || ''}" placeholder="Ex.: 12"></div>
@@ -1227,6 +1357,7 @@
       const g = (id) => document.getElementById(id);
       if (g('dname')) S.d.name = g('dname').value;
       if (g('dcred')) S.d.creditor = g('dcred').value;
+      if (g('dwal')) S.d.wallet = g('dwal').value || null;
       if (g('dparc')) S.d.parcela = M.parseBRL(g('dparc').value);
       if (g('dtot')) S.d.total = Number(g('dtot').value) || 0;
       if (g('dpag')) S.d.pagas = Number(g('dpag').value) || 0;
@@ -1234,7 +1365,7 @@
       if (g('ddue')) S.d.dueDay = Number(g('ddue').value);
       if (g('dsaldo')) S.d.saldo = M.parseBRL(g('dsaldo').value) || null;
     }
-    const snapD = (d) => JSON.stringify([d.kind, d.name.trim(), d.creditor, d.parcela, d.total, d.pagas, d.juros, d.dueDay, d.saldo, d.isNew]);
+    const snapD = (d) => JSON.stringify([d.kind, d.wallet || null, d.name.trim(), d.creditor, d.parcela, d.total, d.pagas, d.juros, d.dueDay, d.saldo, d.isNew]);
 
     /* ---------- relatório mensal (pra imprimir/PDF ou mandar) ---------- */
     function vRelatorio() {
@@ -1312,6 +1443,7 @@
           ${X.ledgerBar()}
           <section class="card total"><span>Você paga em assinaturas</span><strong>${brl(mon)} <small class="per">/mês</small></strong>
             <span class="sub">${brl(yr)} por ano${us.length ? ` · ${us.length} assinatura(s)` : ''}</span></section>
+          <button class="btn primary wide add-top" data-action="newSub">＋ Nova assinatura</button>
           <section class="card"><h3>Minhas assinaturas</h3>
             ${us.length ? us.map((u) => {
               const nx = nextCharge(u), td = trialDays(u);
@@ -1319,7 +1451,7 @@
                 <span class="tx-mid"><b>${esc(u.name)}</b><small>${brl(u.cents)}/${u.cycle === 'anual' ? 'ano' : 'mês'}${u.cycle === 'anual' ? ` (≈ ${brl(subMonthly(u))}/mês)` : ` · ${brl(subYearly(u))}/ano`}${nx ? ` · próxima ${M.shortDate(M.parse(nx))}` : ''}</small>
                 ${td !== null ? `<small class="trial ${td <= 3 ? 'hot' : ''}">⏳ Teste grátis até ${M.shortDate(M.parse(u.trialEnd))} · ${td === 0 ? 'acaba hoje' : `faltam ${td} dia(s)`}</small>` : ''}</span><span class="chev">›</span></button>`;
             }).join('') : '<p class="empty">Netflix, Spotify, academia… cadastre e veja quanto somam por mês e por ano.</p>'}
-            <button class="btn wide" data-action="newSub">＋ Nova assinatura</button></section>
+</section>
           ${us.length ? '<p class="tiny">Com "lançar sozinho" ligado, cada cobrança entra no extrato no dia certo (e na fatura, se for no cartão).</p>' : ''}
         </main>${X.nav('home')}</div>`;
     }
@@ -1386,6 +1518,7 @@
             <div class="${falta ? 'neg-box' : ''}"><small>Falta pagar</small><b class="${falta ? 'neg' : ''}">${brl(falta)}</b></div>
             <div><small>Já pago</small><b class="pos">${brl(pago)}</b></div>
           </section>
+          <button class="btn primary wide add-top" data-action="newBill">＋ Nova conta fixa</button>
           <p class="tiny">Contam só as contas que você paga (e a sua parte das divididas).</p>
           <section class="card"><h3>Checklist</h3>
             ${dl.length ? `<div class="tx-list">${dl.map(dueRow).join('')}</div><p class="tiny">Toque numa conta pra marcar como paga ou informar o valor que chegou.</p>`
@@ -1395,7 +1528,6 @@
             ${list.length ? list.map((b) => `<button class="w-row" data-action="editBill" data-id="${esc(b.id)}"><span class="w-ico" aria-hidden="true">${esc(b.emo || '🧾')}</span>
               <span class="tx-mid"><b>${esc(b.name)}</b><small>${b.kind === 'fixa' ? `Fixa · ${brl(b.cents)}` : `Varia · média ~${brl(billAvg(b, key))}`} · vence dia ${b.dueDay}${payerLabel(b) ? ' · ' + esc(payerLabel(b)) : ''}</small></span><span class="chev">›</span></button>`).join('')
               : '<p class="empty">Aluguel, luz, água, internet… cadastre uma vez e ela aparece todo mês.</p>'}
-            <button class="btn wide" data-action="newBill">＋ Nova conta fixa</button>
             <button class="btn wide" data-action="goSubs">📺 Assinaturas (Netflix, Spotify…)</button>
           </section>
           ${list.length ? `<section class="card"><h3>Lembretes</h3>
@@ -1559,10 +1691,14 @@
             ${inn ? `<span class="sub">Entrou ${brl(inn)}</span>` : ''}
           </section>
           ${w.kind === 'cartao' ? '<p class="tiny">Aqui aparecem as compras feitas no mês. A fatura (fechamento, parcelas e valor que já existia) chega na etapa 3.</p>' : ''}
+          <button class="btn primary wide" data-action="novoWallet" data-id="${esc(w.id)}">＋ Lançar ${w.kind === 'cartao' ? 'compra neste cartão' : 'gasto desta conta'}</button>
+          ${(() => { const ld = debtsOfWallet(w); if (!ld.length) return '';
+            return `<section class="card"><h3>💸 Dívidas ligadas</h3>${ld.map((d) => `<button class="w-row" data-action="openDebt" data-id="${esc(d.id)}"><span class="w-ico">${esc(d.emo || '💸')}</span>
+              <span class="tx-mid"><b>${esc(d.name)}</b><small>${d.pagas}/${d.total} pagas · parcela ${brl(d.parcela)} · dia ${d.dueDay}</small></span><b>${brl(saldoDe(d))}</b></button>`).join('')}
+              <small class="bud-note">Total: ${brl(ld.reduce((a, d) => a + saldoDe(d), 0))}</small></section>`; })()}
           <section class="card"><h3>Lançamentos</h3>
             ${list.length ? `<div class="tx-list">${list.map(txRow).join('')}</div>` : '<p class="empty">Nada neste mês.</p>'}
           </section>
-          <button class="btn primary wide" data-action="novoWallet" data-id="${esc(w.id)}">＋ Lançar ${w.kind === 'cartao' ? 'compra neste cartão' : 'gasto desta conta'}</button>
         </main>${X.nav('carteira')}</div>`;
     }
 
@@ -1820,6 +1956,27 @@
         if (g && g.doneAt && savedOf(g) < g.target) { g.doneAt = null; await put(g); }
         S.gFala = null; X.render();
       },
+      goInvestir() {
+        S.invReturn = S.view; S.sim = null; X.go('investir');
+        const t = taxa(); const last = t.checkedAt ? (Date.now() - new Date(t.checkedAt).getTime()) : Infinity;
+        if (navigator.onLine !== false && last > 12 * 3600 * 1000) buscarTaxa(false).then((ok) => { if (ok && S.view === 'investir') { readSim(); X.render(); } });
+      },
+      invBack() { X.go(['home', 'mais', 'caixinhas'].includes(S.invReturn) ? S.invReturn : 'mais'); },
+      invTab(d) { readSim(); S.invTab = d.v; X.render(); },
+      simMeses(d) { readSim(); S.sim.meses = Number(d.v); X.render(); },
+      simPct(d) { readSim(); S.sim.pct = Number(d.v); X.render(); },
+      simCalc() { readSim(); X.render(); },
+      async taxaAtualizar() { readSim(); await buscarTaxa(true); X.render(); },
+      async taxaManual() {
+        readSim();
+        const r = await X.modal({ title: 'Qual a taxa Selic hoje?', html: '<p>Em % ao ano. Você acha no site do Banco Central (bcb.gov.br) ou em notícias. Ex.: 13,75</p>', input: 'Ex.: 13,75',
+          buttons: [X.CANCEL, { label: 'Usar essa', value: true, kind: 'primary' }] });
+        if (!r || !r.value) return;
+        const v = parseFloat(String(r.text || '').replace('%', '').replace(',', '.'));
+        if (!(v > 0 && v < 100)) return X.toast('Digite só o número, tipo 13,75.');
+        S.cur.prefs.taxa = { selic: v, data: today(), fonte: 'manual', checkedAt: new Date().toISOString() };
+        await X.save(S.cur); X.render(); X.toast('Taxa guardada.');
+      },
       goVontades() { S.vtReturn = S.view; X.go('vontades'); },
       vtBack() { S.wf = null; X.go(['home', 'mais'].includes(S.vtReturn) ? S.vtReturn : 'home'); },
       async wishAdd() {
@@ -1913,6 +2070,7 @@
       newDebt() { S.d = { id: null, kind: 'emprestimo', emo: '🏦', name: '', creditor: '', parcela: 0, total: 0, pagas: 0, juros: null, dueDay: 10, saldo: null, isNew: false }; S.d0 = snapD(S.d); S.dReturn = S.view; X.go('debtform'); },
       editDebt(dd) { const d = S.recs.find((r) => r.id === dd.id); if (!d) return; S.d = { ...d }; S.d0 = snapD(S.d); S.dReturn = S.view; X.go('debtform'); },
       disnew(d) { readD(); S.d.isNew = d.v === '1'; X.render(); },
+      dbank(d) { readD(); S.d.creditor = S.d.creditor === d.v ? '' : d.v; X.render(); },
       dkind(d) { readD(); S.d.kind = d.v; S.d.emo = (DEBT_KINDS.find((x) => x[0] === d.v) || [])[1] || '💸'; X.render(); },
       async dBack() { readD(); if (!(await leave(snapD(S.d) !== S.d0, 'nesta dívida'))) return; const r = S.dReturn; S.d = null; X.go(r === 'divida' && S.dv ? 'divida' : 'dividas'); },
       async dsave() {
@@ -1928,7 +2086,7 @@
           if (M.dayIn(k, d.dueDay) < M.parse(today())) {
             const yes = await X.modal({ title: `A parcela de ${M.monthName(k)} já foi paga?`, html: `<p>Ela venceu dia ${d.dueDay}. Se já pagou (e contou nas "já pagas"), ela só volta a aparecer em ${M.monthName(M.addMonths(k, 1))}.</p>`,
               buttons: [{ label: 'Ainda não', value: false }, { label: 'Já paguei', value: true, kind: 'primary' }] });
-            if (yes) startKey = M.addMonths(k, 1);
+            if (yes) d.paidKeys = [k];
           }
         }
         const rec = { ...d, startKey, id: d.id || 'd-' + Sec.uid(), type: 'debt', name: d.name.trim().slice(0, 30), creditor: (d.creditor || '').trim().slice(0, 30), emo: d.emo || '💸',
@@ -2019,14 +2177,20 @@
       },
       peDetail(d) {
         readPE();
-        const cur = S.pe.out[d.cat] || 0;
+        const isIn = d.cat.startsWith('in:');
+        const cur = isIn ? S.pe.in[d.cat.slice(3)] || 0 : S.pe.out[d.cat] || 0;
         // sugere itens a partir das contas fixas dessa categoria
-        const fromBills = bills().filter((b) => b.cat === d.cat && b.payer !== 'outro').map((b) => ({ name: b.name, cents: myPart(b, b.kind === 'fixa' ? b.cents : billAvg(b, S.pe.key)) }));
+        const fromBills = isIn ? [] : bills().filter((b) => b.cat === d.cat && b.payer !== 'outro').map((b) => ({ name: b.name, cents: myPart(b, b.kind === 'fixa' ? b.cents : billAvg(b, S.pe.key)) }));
         S.pe.items[d.cat] = fromBills.length ? fromBills : [{ name: '', cents: cur }];
         X.render();
       },
       peItemAdd(d) { readPE(); S.pe.items[d.cat].push({ name: '', cents: 0 }); X.render(); },
-      peItemDel(d) { readPE(); const it = S.pe.items[d.cat]; it.splice(Number(d.i), 1); const sum = it.reduce((a, x) => a + (x.cents || 0), 0); if (sum) S.pe.out[d.cat] = sum; else delete S.pe.out[d.cat]; if (!it.length) delete S.pe.items[d.cat]; X.render(); },
+      peItemDel(d) {
+        readPE(); const it = S.pe.items[d.cat]; it.splice(Number(d.i), 1);
+        const isIn = d.cat.startsWith('in:'), cat = isIn ? d.cat.slice(3) : d.cat, tgt = isIn ? S.pe.in : S.pe.out;
+        const sum = it.reduce((a, x) => a + (x.cents || 0), 0); if (sum) tgt[cat] = sum; else delete tgt[cat];
+        if (!it.length) delete S.pe.items[d.cat]; X.render();
+      },
       peUndetail(d) { readPE(); delete S.pe.items[d.cat]; X.render(); },
       pePrev() {
         readPE();
@@ -2335,7 +2499,7 @@
     function back() {
       const map = { lancar: 'lancBack', wallet: 'wBack', catform: 'cBack', wdetail: 'wdBack', cardprev: 'cpBack', billform: 'bBack', billpay: 'bpBack', planedit: 'peBack',
         subform: 'uBack', assinaturas: 'subsBack', divida: 'dvBack', debtform: 'dBack', relatorio: 'repBack',
-        caixinhas: 'cxBack', caixa: 'gBack', caixaform: 'gfBack', vontades: 'vtBack' };
+        caixinhas: 'cxBack', caixa: 'gBack', caixaform: 'gfBack', vontades: 'vtBack', investir: 'invBack' };
       if (S.view === 'dividas') { X.go('home'); return true; }
       if (S.view === 'contas' || S.view === 'orcamento') { X.go('home'); return true; }
       if (S.view === 'resumo') { X.go('extrato'); return true; }
@@ -2347,7 +2511,7 @@
       reload, home, moodOnEnter, back, settingsCats, state,
       views: { lancar: vLancar, extrato: vExtrato, carteira: vCarteira, wallet: vWallet, wdetail: vWDetail, catform: vCatForm, cardprev: vPrev,
         contas: vContas, billform: vBillForm, billpay: vBillPay, orcamento: vOrcamento, planedit: vPlanEdit,
-        resumo: vResumo, assinaturas: vSubs, subform: vSubForm, dividas: vDividas, divida: vDivida, debtform: vDebtForm, relatorio: vRelatorio, mais: vMais, caixinhas: vCaixinhas, caixa: vCaixa, caixaform: vCaixaForm, vontades: vVontades },
+        resumo: vResumo, assinaturas: vSubs, subform: vSubForm, dividas: vDividas, divida: vDivida, debtform: vDebtForm, relatorio: vRelatorio, mais: vMais, caixinhas: vCaixinhas, caixa: vCaixa, caixaform: vCaixaForm, vontades: vVontades, investir: vInvestir },
       actions,
       onInput(e) { if (e.target.id === 'fdesc' && S.f) S.f.desc = e.target.value; if (e.target.id === 'busca') filterMais(e.target.value); },
       onChange(e) { if (e.target.id === 'fdate' && S.f && e.target.value) { readF(); S.f.date = e.target.value; X.render(); } }

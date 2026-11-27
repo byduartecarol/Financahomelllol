@@ -1,7 +1,7 @@
 /* Finanças da Casa — Fase 1, Etapa 1.1
    Perfis estilo Netflix, senha opcional, recuperação, ajustes por perfil, mascotes animados e backup. */
 (function () {
-  const APP_VERSION = '0.10.0 (caixinhas)';
+  const APP_VERSION = '1.0.0 (completo)';
   const $app = document.getElementById('app');
 
   const DEFAULT_PROFILES = [

@@ -520,3 +520,17 @@ button.bud-row { display: block; width: 100%; background: none; border: 0; borde
 .wish-btns { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 6px; }
 .wish-banner .plan-btn b { display: block; }
 .hist-row .icon-btn.x { margin-left: 6px; }
+
+/* ===== 1.0.0: gato investidor, botões de adicionar no topo ===== */
+.add-top { margin: 0 0 12px; }
+.add-row.add-top .btn { flex: 1; }
+.inv-bar { display: grid; grid-template-columns: 1fr; gap: 4px; padding: 8px 0; border-top: 1px solid var(--line); }
+.inv-bar:first-of-type { border-top: 0; }
+.inv-bar > span { font-size: .92rem; }
+.inv-bar > b { font-variant-numeric: tabular-nums; font-size: 1.05rem; }
+.inv-track { height: 14px; background: var(--line); border-radius: 7px; overflow: hidden; }
+.inv-fill { height: 100%; border-radius: 7px; transition: width .5s ease; }
+.inv-fill.p0 { background: var(--muted); }
+.inv-fill.p1 { background: var(--s2); }
+.inv-fill.p2 { background: var(--s1); }
+.taxa-box .warn { color: var(--danger); font-weight: 600; }
