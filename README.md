@@ -84,11 +84,34 @@ Sem servidor, sem login de banco, sem conexão com banco. Backup por arquivo JSO
   botão do meio vira "＋ Conta" na tela de Contas; opção "Esconder este perfil neste celular".
 - IMPORTANTE: cada celular tem os próprios dados (sem servidor). Os celulares NÃO sincronizam.
 
-**Próximo (Fase 2 — organização):** limite por categoria com barra, gráficos (pizza por categoria, barras mês a mês,
-histórico das contas variáveis), assinaturas (mensal + ANUAL + fim de teste grátis), resumo do mês, histórico em dia × atrasado,
-relatório mensal pra imprimir (incluindo um separado das Finanças da Mãe).
-A decidir com a usuária: "espaço livre" da mãe e contas da casa compartilhadas.
-A fazer no fim: checklist final simples pra mãe testar.
+**Fase 2 — Parte 1 (pronta):**
+- Perfis: "＋ Adicionar perfil" (nome, bicho, tom, letra) e "Apagar este perfil deste celular" (digitando APAGAR).
+  Ao apagar o dono, outro perfil vira dono.
+- Cadernos administrados independentes (`profile.admBooks = [{id, name}]`, ledger `adm-<id>`). Não dependem do outro perfil
+  existir no celular. O antigo `admFor` é migrado automaticamente.
+- Contas fixas com "Quem paga?": `payer` = eu | outro (`payerName`; só acompanha, "✓ Ela pagou" sem lançamento) | dividido
+  (`share` %; só a minha parte entra no falta pagar, no extrato e no orçamento). "📅 Mandar lembretes pra <pessoa>" gera .ics
+  só com as contas dela.
+- Orçamento planejado × real (`type:'plan'`, `key`, `out{cat:c}`, `in{cat:c}`): vale do mês da chave em diante, até outro plano.
+  Tela com Esperado × Real (entradas, gastos, sobra), barras por categoria (verde, laranja a partir de 80%, vermelho estourado),
+  entradas (falta entrar / recebido). Atalhos: preencher com as contas fixas e copiar o real do mês passado. Card no Início.
+- Mascote: quase no limite (80%) → preocupado; passou do limite → triste; ao entrar com categoria estourada → avisa.
+  Gasto grande dentro do planejado não assusta.
+
+**Fase 2 — Partes 2 e 3 (prontas):**
+- `js/charts.js`: gráficos em SVG puro (rosca, barras agrupadas, barras empilhadas, linha com média), dica ao tocar
+  (`data-tip`). Paleta categórica validada contra daltonismo e contraste nos dois temas (`--s1..--s8`) + cores de status
+  (`--ok`, `--bad`, `--warn`), sempre com legenda e valores escritos.
+- Extrato com abas "Lançamentos | Resumo e gráficos". O Resumo mostra entrou/saiu/sobrou, a variação × mês anterior,
+  % essencial, o maior gasto, a rosca por categoria (top 7 + "Outras") com lista de valores, entradas × gastos (6 meses),
+  o histórico das contas variáveis (valores reais + média) e as contas pagas em dia × com atraso × vencidas sem pagar (6 meses).
+- Assinaturas (`type:'sub'`): mensal ou anual, dia (e mês) da cobrança, forma de pagamento/cartão, teste grátis (aviso a 3 dias
+  e mascote preocupado), total por mês (anual ÷ 12) e por ano. "Lançar sozinho": cada cobrança vira um gasto uma única vez
+  (`tx.subId` + `subKey`). Apagar esse gasto cria `subskip`, pra ele não voltar. Cancelar = `active:false` (o histórico fica).
+  Ao cadastrar, se a cobrança deste mês já passou, o app pergunta se lança.
+
+**Próximo (Fase 2 — parte 4):** relatório mensal pra imprimir/PDF ou mandar (incluindo um separado das Finanças da Mãe).
+Depois, a Fase 3 (dívidas, caixinhas, trilha, vontade de comprar, gato investidor). No fim: checklist simples pra mãe.
 
 ## Estrutura
 ```

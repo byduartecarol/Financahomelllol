@@ -1,7 +1,7 @@
 /* Finanças da Casa — Fase 1, Etapa 1.1
    Perfis estilo Netflix, senha opcional, recuperação, ajustes por perfil, mascotes animados e backup. */
 (function () {
-  const APP_VERSION = '0.6.0 (etapa 5)';
+  const APP_VERSION = '0.8.1 (fase 2 · partes 2 e 3)';
   const $app = document.getElementById('app');
 
   const DEFAULT_PROFILES = [
@@ -50,16 +50,23 @@
   const admId = (pid) => 'adm-' + pid;
   const ledger = () => S.ledgerId || (S.cur && S.cur.id);
   const inAdm = () => !!(S.cur && S.ledgerId && S.ledgerId !== S.cur.id);
-  const admTargets = (p) => (p && p.owner ? S.profiles.filter((o) => !o.owner && (p.admFor || []).includes(o.id)) : []);
+  // Cadernos administrados: { id, name } guardados no próprio perfil (não dependem do outro perfil existir neste celular)
+  const books = (p) => {
+    if (!p) return [];
+    if (!p.admBooks && p.admFor) p.admBooks = p.admFor.map((id) => ({ id, name: (S.profiles.find((o) => o.id === id) || {}).name || 'Família' }));
+    return p.admBooks || [];
+  };
+  const admTargets = books;
+  const bookOf = (lid) => books(S.cur).find((b) => admId(b.id) === lid);
   const ledgerName = () => {
     if (!inAdm()) return S.cur ? S.cur.name : '';
-    const o = S.profiles.find((x) => admId(x.id) === S.ledgerId);
-    return 'Finanças da ' + (o ? o.name : 'família');
+    const b = bookOf(S.ledgerId);
+    return 'Finanças da ' + (b ? b.name : 'família');
   };
   function ledgerBar() {
     const ts = admTargets(S.cur);
     if (!ts.length) return '';
-    const opts = [[S.cur.id, '👤 Minhas']].concat(ts.map((o) => [admId(o.id), `💞 Da ${esc(o.name)}`]));
+    const opts = [[S.cur.id, '👤 Minhas']].concat(ts.map((o) => [admId(o.id), `💞 ${esc(o.name)}`]));
     return `<div class="ledger-bar"><div class="seg">${opts.map(([v, l]) => `<button class="${ledger() === v ? 'on' : ''}" data-action="switchLedger" data-v="${v}" aria-pressed="${ledger() === v}">${l}</button>`).join('')}</div>
       ${inAdm() ? `<p class="adm-note">Você está em <b>${esc(ledgerName())}</b>: renda e contas dela que você administra. O perfil privado dela continua só dela.</p>` : ''}</div>`;
   }
@@ -202,7 +209,28 @@
         </button>`).join('')}
       </div>
       <p class="hint">Tudo fica salvo só neste celular. Nada vai pra internet e nada se conecta ao banco.</p>
+      <button class="btn add-profile" data-action="newProfile">＋ Adicionar perfil</button>
       ${S.profiles.some((p) => p.hidden) && !S.showHidden ? '<button class="link" data-action="showHidden">Mostrar perfis escondidos</button>' : ''}
+    </main>`;
+  }
+
+  function readNp() { const i = document.getElementById('npname'); if (i && S.np) S.np.name = i.value; }
+  function vNewProfile() {
+    const n = S.np;
+    const segB = (action, opts, val) => `<div class="seg">${opts.map(([v, l]) => `<button class="${val === v ? 'on' : ''}" data-action="${action}" data-v="${v}">${l}</button>`).join('')}</div>`;
+    return `<main class="screen narrow form-new">
+      <button class="back" data-action="npBack">‹ Voltar</button>
+      <h2 class="h2">Novo perfil</h2>
+      <div class="pet-preview">${Pet.full({ pet: n.pet, mood: 'feliz' })}</div>
+      <label class="lbl" for="npname">Nome</label>
+      <input class="field" id="npname" maxlength="20" value="${esc(n.name)}" placeholder="Ex.: Vó, Irmão…">
+      <label class="lbl">Bichinho</label>
+      <div class="pet-grid">${Object.entries(Pet.list).map(([id, c]) => `<button class="pet-pick ${n.pet === id ? 'on' : ''}" data-action="npPet" data-v="${id}">${Pet.face({ pet: id, mood: 'feliz', label: c.nome })}<span>${c.nome}</span></button>`).join('')}</div>
+      <label class="lbl">Jeito de falar</label>
+      ${segB('npTone', [['acolhedor', 'Acolhedor'], ['debochado', 'Debochado']], n.tone)}
+      <label class="lbl">Tamanho da letra</label>
+      ${segB('npFont', [['p', 'P'], ['m', 'M'], ['g', 'G'], ['gg', 'GG']], n.font)}
+      <button class="btn primary wide big-save" data-action="npSave">Criar perfil</button>
     </main>`;
   }
 
@@ -374,13 +402,15 @@
           <p class="small">Como dona do app, você pode resetar a senha de outro perfil. Você continua sem ver nada aqui, e a pessoa é avisada quando entrar.</p>
           ${others.map((o) => `<div class="row between"><span>${esc(o.name)} ${o.pin ? '🔒' : '<span class="tiny">(sem senha)</span>'}</span>
             ${o.pin ? `<button class="btn danger-outline" data-action="resetOther" data-id="${o.id}">Resetar senha</button>` : ''}</div>`).join('')}
-        </section>
+        </section>` : ''}
+
         <section class="card">
           <h3>Finanças que você administra</h3>
-          <p class="small">Um caderno separado, dentro do seu perfil, pra renda e contas que você cuida e paga por outra pessoa. Ele <b>não</b> mostra nada do perfil privado dela.</p>
-          ${others.map((o) => `<div class="row between"><span>Finanças da ${esc(o.name)}</span>
-            <div class="seg mini">${[['1', 'Ligado'], ['0', 'Desligado']].map(([v, l]) => `<button class="${((p.admFor || []).includes(o.id) ? '1' : '0') === v ? 'on' : ''}" data-action="admToggle" data-id="${o.id}" data-v="${v}">${l}</button>`).join('')}</div></div>`).join('')}
-        </section>` : ''}
+          <p class="small">Um caderno separado, dentro do seu perfil, pra renda e contas que você cuida por outra pessoa (ex.: sua mãe). Não mostra nada do perfil privado dela.</p>
+          ${books(p).map((b) => `<div class="row between"><span>💞 Finanças da <b>${esc(b.name)}</b></span>
+            <button class="btn danger-outline sm-btn" data-action="bookDel" data-id="${esc(b.id)}">Apagar</button></div>`).join('')}
+          <button class="btn wide" data-action="bookNew">＋ Novo caderno</button>
+        </section>
 
         <section class="card">
           <h3>Neste celular</h3>
@@ -390,6 +420,7 @@
 
         <section class="card">
           <button class="btn wide" data-action="toProfiles">Trocar de perfil</button>
+          <button class="btn danger-outline wide mt" data-action="profileDel">Apagar este perfil deste celular</button>
           <p class="tiny center-t">Finanças da Casa · versão ${APP_VERSION}</p>
         </section>
       </main>
@@ -398,12 +429,13 @@
   }
 
   function render() {
-    if (S.view === 'profiles' || S.view === 'pin' || S.view === 'recover' || S.view === 'code') {
+    if (S.view === 'profiles' || S.view === 'pin' || S.view === 'recover' || S.view === 'code' || S.view === 'newprofile') {
       applyPrefs(S.view === 'profiles' ? null : prof(S.p.id));
     } else applyPrefs(S.cur);
-    const views = { profiles: vProfiles, pin: vPin, code: vCode, recover: vRecover, home: vHome, settings: vSettings, ...L.views };
+    const views = { profiles: vProfiles, pin: vPin, code: vCode, recover: vRecover, home: vHome, settings: vSettings, newprofile: vNewProfile, ...L.views };
+    if (S.view === 'newprofile' && !S.np) S.view = 'profiles';
     if (!views[S.view] || (L.views[S.view] && !S.cur)) S.view = S.cur ? 'home' : 'profiles';
-    if ((S.view === 'lancar' && !S.f) || (S.view === 'wallet' && !S.w) || (S.view === 'catform' && !S.c) || (S.view === 'wdetail' && !S.wd) || (S.view === 'cardprev' && !S.cp) || (S.view === 'billform' && !S.b) || (S.view === 'billpay' && !S.bp)) S.view = 'home';
+    if ((S.view === 'lancar' && !S.f) || (S.view === 'wallet' && !S.w) || (S.view === 'catform' && !S.c) || (S.view === 'wdetail' && !S.wd) || (S.view === 'cardprev' && !S.cp) || (S.view === 'billform' && !S.b) || (S.view === 'billpay' && !S.bp) || (S.view === 'planedit' && !S.pe) || (S.view === 'subform' && !S.u)) S.view = 'home';
     $app.innerHTML = views[S.view]();
   }
 
@@ -434,7 +466,7 @@
     }
   }
 
-  function toProfiles() { S.cur = null; S.recs = []; S.f = null; S.w = null; S.c = null; S.wd = null; S.cp = null; S.fk = null; S.b = null; S.bp = null; S.ledgerId = null; Money.setCustom([]); go('profiles'); }
+  function toProfiles() { S.cur = null; S.recs = []; S.f = null; S.w = null; S.c = null; S.wd = null; S.cp = null; S.fk = null; S.b = null; S.bp = null; S.pe = null; S.u = null; S.ledgerId = null; Money.setCustom([]); go('profiles'); }
 
   /* ---------- senha ---------- */
   async function setPin(p, pin) {
@@ -502,10 +534,10 @@
   async function buildBackup() {
     const p = S.cur;
     let records = await DB.byProfile(p.id);
-    for (const o of admTargets(p)) records = records.concat(await DB.byProfile(admId(o.id)));
+    for (const b of books(p)) records = records.concat(await DB.byProfile(admId(b.id)));
     const payload = {
       app: 'financas-casa', schema: 1, exportedAt: new Date().toISOString(), appVersion: APP_VERSION,
-      profile: { id: p.id, name: p.name, pet: p.pet, acc: p.acc, prefs: p.prefs, admFor: p.admFor || [] },
+      profile: { id: p.id, name: p.name, pet: p.pet, acc: p.acc, prefs: p.prefs, admBooks: books(p) },
       records
     };
     const name = `financas-casa_${slug(p.name)}_${ymd()}.json`;
@@ -569,10 +601,11 @@
         return { ...r, profileId: pid, id };
       })
       .map((r) => { const o = { ...r }; REFS.forEach((k) => { if (o[k] && idMap[o[k]]) o[k] = idMap[o[k]]; }); return o; });
-    const ledgers = new Set([p.id, ...(!otherProfile ? (data.profile?.admFor || []).map(admId) : [])]);
+    const bkList = !otherProfile ? (data.profile?.admBooks || (data.profile?.admFor || []).map((id) => ({ id, name: id }))) : [];
+    const ledgers = new Set([p.id, ...bkList.map((b) => admId(b.id))]);
     recs.forEach((r) => ledgers.add(r.profileId));
     for (const lid of ledgers) await DB.replaceProfileRecords(lid, recs.filter((r) => r.profileId === lid));
-    if (!otherProfile && Array.isArray(data.profile?.admFor)) p.admFor = data.profile.admFor.filter((id) => S.profiles.some((o) => o.id === id));
+    if (!otherProfile && bkList.length) { p.admBooks = bkList.filter((b) => b && b.id).map((b) => ({ id: String(b.id), name: String(b.name || 'Família').slice(0, 20) })); delete p.admFor; }
     await L.reload();
     if (!otherProfile && data.profile) {
       if (data.profile.prefs) p.prefs = { ...p.prefs, ...data.profile.prefs };
@@ -629,8 +662,8 @@
       if (!r.value) return;
       if (r.text.trim().toUpperCase() !== 'APAGAR') return toast('Não apaguei: a palavra não confere.');
       await DB.replaceProfileRecords(p.id, []);
-      for (const o of S.profiles.filter((x) => x.id !== p.id)) await DB.replaceProfileRecords(admId(o.id), []);
-      p.admFor = [];
+      for (const b of books(p)) await DB.replaceProfileRecords(admId(b.id), []);
+      p.admBooks = []; delete p.admFor;
       p.pin = null; p.recovery = null; p.lastBackupAt = null; p.seenWelcome = false;
       await save(p);
       toast('Dados apagados. Perfil recomeçado.');
@@ -671,15 +704,65 @@
       render();
       act(Math.random() < 0.6 ? 'wave' : 'roll', 1500);
     },
-    async admToggle(d) {
-      const p = S.cur; const on = d.v === '1';
-      p.admFor = (p.admFor || []).filter((x) => x !== d.id).concat(on ? [d.id] : []);
-      await save(p);
-      if (!on && S.ledgerId === admId(d.id)) { S.ledgerId = p.id; await L.reload(); }
-      render();
-      const o = prof(d.id);
-      toast(on ? `Pronto! No Início aparece "Minhas | Da ${o.name}".` : 'Desligado. Os dados continuam guardados se você ligar de novo.');
+    async bookNew() {
+      const sug = S.profiles.filter((o) => o.id !== S.cur.id && !books(S.cur).some((b) => b.id === o.id)).map((o) => o.name);
+      const r = await modal({ title: 'Novo caderno', html: `<p>De quem são as finanças que você vai administrar?</p>${sug.length ? `<p class="tiny">Sugestão: ${sug.map(esc).join(', ')}</p>` : ''}`,
+        input: sug[0] || 'Ex.: Mãe', buttons: [CANCEL, { label: 'Criar', value: true, kind: 'primary' }] });
+      if (!r.value) return;
+      const name = (r.text || '').trim() || sug[0];
+      if (!name) return toast('Dê um nome, tipo "Mãe".');
+      const p = S.cur;
+      const exist = S.profiles.find((o) => o.id !== p.id && o.name.toLowerCase() === name.toLowerCase());
+      const id = exist && !books(p).some((b) => b.id === exist.id) ? exist.id : 'bk-' + Sec.uid().slice(0, 8);
+      p.admBooks = books(p).concat([{ id, name: name.slice(0, 20) }]);
+      delete p.admFor;
+      await save(p); render();
+      toast(`Pronto! No Início aparece "Minhas | ${name}".`);
     },
+    async bookDel(d) {
+      const p = S.cur; const b = books(p).find((x) => x.id === d.id); if (!b) return;
+      const r = await modal({ title: `Apagar o caderno da ${esc(b.name)}?`, html: '<p>Tudo que foi anotado nele some deste celular. Para confirmar, digite <b>APAGAR</b>.</p>',
+        input: 'APAGAR', buttons: [CANCEL, { label: 'Apagar', value: true, kind: 'danger' }] });
+      if (!r.value || r.text.trim().toUpperCase() !== 'APAGAR') return;
+      await DB.replaceProfileRecords(admId(b.id), []);
+      p.admBooks = books(p).filter((x) => x.id !== b.id); delete p.admFor;
+      await save(p);
+      if (S.ledgerId === admId(b.id)) { S.ledgerId = p.id; await L.reload(); }
+      render(); toast('Caderno apagado.');
+    },
+    async profileDel() {
+      const p = S.cur;
+      if (S.profiles.length <= 1) return toast('Este é o único perfil. Crie outro antes de apagar este.');
+      const r = await modal({ title: `Apagar o perfil "${esc(p.name)}" deste celular?`,
+        html: `<p>Some <b>tudo</b> dele neste celular: lançamentos, contas, cartões${books(p).length ? ' e os cadernos que ele administra' : ''}. Se quiser guardar, faça um backup antes.</p><p>Para confirmar, digite <b>APAGAR</b>.</p>`,
+        input: 'APAGAR', buttons: [CANCEL, { label: 'Apagar perfil', value: true, kind: 'danger' }] });
+      if (!r.value) return;
+      if (r.text.trim().toUpperCase() !== 'APAGAR') return toast('Não apaguei: a palavra não confere.');
+      await DB.replaceProfileRecords(p.id, []);
+      for (const b of books(p)) await DB.replaceProfileRecords(admId(b.id), []);
+      await DB.del('profiles', p.id);
+      S.profiles = S.profiles.filter((x) => x.id !== p.id);
+      if (p.owner && S.profiles.length) { S.profiles[0].owner = true; await save(S.profiles[0]); }
+      S.profiles.forEach((x) => { if (x.hidden && S.profiles.every((y) => y.hidden)) x.hidden = false; });
+      toProfiles(); toast('Perfil apagado deste celular.');
+    },
+    newProfile() { S.np = { name: '', pet: 'gato-laranja', tone: 'acolhedor', font: 'm' }; go('newprofile'); },
+    npPet(d) { readNp(); S.np.pet = d.v; render(); },
+    npTone(d) { readNp(); S.np.tone = d.v; render(); },
+    npFont(d) { readNp(); S.np.font = d.v; render(); },
+    async npSave() {
+      readNp();
+      const n = S.np;
+      if (!n.name.trim()) return toast('Dê um nome pro perfil.');
+      if (S.profiles.some((x) => x.name.toLowerCase() === n.name.trim().toLowerCase())) return toast('Já existe um perfil com esse nome.');
+      const now = new Date().toISOString();
+      const np = { id: 'p-' + Sec.uid().slice(0, 8), name: n.name.trim().slice(0, 20), owner: !S.profiles.some((x) => x.owner), pet: n.pet, acc: 'none',
+        prefs: { font: n.font, theme: 'claro', tone: n.tone, big: n.font === 'g' || n.font === 'gg', bed: true },
+        pin: null, recovery: null, createdAt: now, lastBackupAt: null, seenWelcome: false, resetNotice: null };
+      await save(np); S.profiles.push(np); S.profiles.sort((a, b) => Number(a.owner) - Number(b.owner));
+      S.np = null; go('profiles'); toast(`Perfil "${np.name}" criado!`);
+    },
+    npBack() { S.np = null; go('profiles'); },
     async hideMe(d) {
       const p = S.cur;
       if (d.v === '1' && S.profiles.filter((x) => !x.hidden && x.id !== p.id).length === 0) return toast('Pelo menos um perfil precisa aparecer.');
@@ -773,6 +856,7 @@
       case 'home': toProfiles(); return true;
       case 'pin': A.pinBack(); return true;
       case 'recover': toProfiles(); return true;
+      case 'newprofile': A.npBack(); return true;
       case 'code': toast('Anote o código e toque em Continuar.'); return true;
       default: return false;
     }
