@@ -1,7 +1,7 @@
 /* Finanças da Casa — Fase 1, Etapa 1.1
    Perfis estilo Netflix, senha opcional, recuperação, ajustes por perfil, mascotes animados e backup. */
 (function () {
-  const APP_VERSION = '0.3.1 (etapa 2)';
+  const APP_VERSION = '0.3.2 (etapa 2.1)';
   const $app = document.getElementById('app');
 
   const DEFAULT_PROFILES = [
@@ -317,6 +317,8 @@
           <p class="tiny">${p.prefs.tone === 'acolhedor' ? 'Acolhedor: só fala com carinho e nunca fica bravo.' : 'Debochado: zoa com você e fica bravo se você cutucar demais.'}</p>
         </section>
 
+        ${L.settingsCats()}
+
         <section class="card">
           <h3>Nome do perfil</h3>
           <div class="row"><input class="field" id="pname" maxlength="20" value="${esc(p.name)}"><button class="btn" data-action="rename">Salvar</button></div>
@@ -362,7 +364,7 @@
     } else applyPrefs(S.cur);
     const views = { profiles: vProfiles, pin: vPin, code: vCode, recover: vRecover, home: vHome, settings: vSettings, ...L.views };
     if (!views[S.view] || (L.views[S.view] && !S.cur)) S.view = S.cur ? 'home' : 'profiles';
-    if ((S.view === 'lancar' && !S.f) || (S.view === 'wallet' && !S.w)) S.view = 'home';
+    if ((S.view === 'lancar' && !S.f) || (S.view === 'wallet' && !S.w) || (S.view === 'catform' && !S.c) || (S.view === 'wdetail' && !S.wd)) S.view = 'home';
     $app.innerHTML = views[S.view]();
   }
 
@@ -391,7 +393,7 @@
     }
   }
 
-  function toProfiles() { S.cur = null; S.recs = []; S.f = null; S.w = null; go('profiles'); }
+  function toProfiles() { S.cur = null; S.recs = []; S.f = null; S.w = null; S.c = null; S.wd = null; Money.setCustom([]); go('profiles'); }
 
   /* ---------- senha ---------- */
   async function setPin(p, pin) {
@@ -676,6 +678,28 @@
     else if (e.key === 'Enter') pinKey('ok').catch(err);
   });
 
+  /* ---------- botão "voltar" do Android ----------
+     Mantém uma entrada extra no histórico: cada "voltar" é interceptado e vira navegação
+     dentro do app. Só na tela "Quem está usando?" o voltar sai do app de verdade. */
+  function handleBack() {
+    const m = document.querySelector('.modal-bg');
+    if (m) { const b = m.querySelector('[data-i="0"]'); if (b) b.click(); return true; }
+    if (L.back()) return true;
+    switch (S.view) {
+      case 'extrato': case 'carteira': case 'settings': go('home'); return true;
+      case 'home': toProfiles(); return true;
+      case 'pin': A.pinBack(); return true;
+      case 'recover': toProfiles(); return true;
+      case 'code': toast('Anote o código e toque em Continuar.'); return true;
+      default: return false;
+    }
+  }
+  const armBack = () => { try { history.pushState({ fc: 1 }, ''); } catch (e) { /* ignora */ } };
+  window.addEventListener('popstate', () => {
+    if (handleBack()) armBack();
+    else history.back();
+  });
+
   // Bloqueia de novo se o app ficar 2 minutos em segundo plano (só se o perfil tiver senha).
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) { S.hiddenAt = Date.now(); return; }
@@ -711,6 +735,8 @@
       // Pede ao Android pra não apagar os dados quando faltar espaço
       if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
       go('profiles');
+      try { history.replaceState({ root: 1 }, ''); } catch (e2) { /* ignora */ }
+      armBack();
     } catch (e) {
       const dbErr = e && (e.name === 'InvalidStateError' || e.name === 'UnknownError' || /indexeddb|database/i.test(e.message || ''));
       $app.innerHTML = dbErr

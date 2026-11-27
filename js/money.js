@@ -33,11 +33,22 @@
   ];
   const BANCOS = ['Nubank', 'Itaú', 'Bradesco', 'Caixa', 'Banco do Brasil', 'Santander', 'Inter', 'C6', 'Mercado Pago', 'PicPay'];
   const pad = (n) => String(n).padStart(2, '0');
+  // Emojis sugeridos pra categorias criadas pela pessoa
+  const EMOJIS = ['🛍️', '🍞', '🥩', '☕', '🍺', '🍕', '🚗', '⛽', '🅿️', '🛵', '✈️', '📱', '💻', '🎮', '🎬', '🎵', '📖', '🎓', '🏋️', '💈',
+    '🧴', '🧹', '🔧', '💡', '💧', '🔥', '🌱', '👶', '🧸', '🐶', '🐱', '🏥', '🦷', '👓', '🙏', '⛪', '💍', '🎂', '🏖️', '💰', '🧾', '📦'];
+  let custom = []; // categorias da pessoa (records type:'cat'), atualizadas pelo app
 
   window.Money = {
-    CATS_OUT, CATS_IN, PAYS, BANCOS,
-    cats(dir) { return dir === 'in' ? CATS_IN : CATS_OUT; },
-    cat(id) { return CATS_OUT.concat(CATS_IN).find((c) => c.id === id) || { id, nome: 'Outros', emo: '📦', ess: false }; },
+    CATS_OUT, CATS_IN, PAYS, BANCOS, EMOJIS,
+    setCustom(list) { custom = (list || []).map((c) => ({ id: c.id, nome: c.name, emo: c.emo || '🏷️', ess: !!c.ess, dir: c.dir || 'out', archived: !!c.archived, custom: true })); },
+    customList() { return custom.filter((c) => !c.archived); },
+    cats(dir) {
+      const mine = custom.filter((c) => !c.archived && c.dir === dir);
+      const base = dir === 'in' ? CATS_IN : CATS_OUT;
+      // "Outros" sempre por último
+      return base.filter((c) => !/^outros/.test(c.id)).concat(mine, base.filter((c) => /^outros/.test(c.id)));
+    },
+    cat(id) { return CATS_OUT.concat(CATS_IN, custom).find((c) => c.id === id) || { id, nome: 'Outros', emo: '📦', ess: false }; },
     pay(id) { return PAYS.find((p) => p.id === id) || { id, nome: '', emo: '' }; },
     // Datas locais (sem fuso UTC, pra não "pular" o dia à noite)
     ymd(d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); },

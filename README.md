@@ -41,7 +41,14 @@ Sem servidor, sem login de banco, sem conexão com banco. Backup por arquivo JSO
 - Registros no store `records`: `type:'wallet'` e `type:'tx'` (valores em centavos, data local AAAA-MM-DD).
   Compra parcelada fica guardada inteira, com `parcelas`. A divisão nas faturas é a etapa 3.
 
-**Próxima etapa (Fase 1, etapa 3):** cartão de crédito com fatura: compra entra na fatura certa pelo dia
+**Etapa 2.1 (pronta):**
+- Botão "voltar" do Android navega dentro do app (só sai na tela de perfis). Formulário com mudança não salva pergunta antes de sair.
+- Categorias da pessoa (`type:'cat'`: nome, emoji, essencial, gasto/receita). Criadas no lançar ou em Ajustes. Apagar uma em uso só arquiva, pro histórico manter o nome.
+- Saldo do mês: "Sobrou" ou "Ficou negativo" (vermelho) no Início e no Extrato. O mascote fica preocupado quando um gasto faz o mês virar negativo (só se houver receita no mês).
+- Carteira: tocar no cartão ou na conta mostra os lançamentos do mês nele. "Editar" fica no topo, e dá pra lançar direto nele.
+- Extrato "Por forma de pagamento" (Pix, débito, crédito, dinheiro), tocando pra filtrar.
+
+**Próxima etapa (Fase 1, etapa 3):** Incluir também: valor que já existia na fatura aberta e parcelamentos em andamento (parcela × quantas faltam), sem redigitar compras antigas. cartão de crédito com fatura: compra entra na fatura certa pelo dia
 de fechamento, parcelas espalhadas nas faturas futuras, fatura com total, essencial e não essencial.
 
 ## Estrutura

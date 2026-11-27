@@ -338,6 +338,7 @@
       receitaSalva: ['Dinheiro entrando! Finalmente uma notícia boa.', 'Opa, caiu! Não gasta tudo hoje, hein.'],
       resumo: ['Esse mês já saiu {saiu}. Tô contando cada centavo.', 'Até agora, {saiu} de gastos. Sigo de olho.'],
       apagado: ['Apagado. Vou fingir que não vi.'],
+      negativo: ['Opa! Entrou no vermelho este mês. Gastou mais do que entrou.', 'Alerta: o mês ficou negativo. Respira e segura o cartão.'],
       senhaErrada: ['Errou. Tô de olho.', 'Não é essa não, hein.'],
       pinCriado: ['Senha criada. Agora nem eu entro sem pedir licença.'],
       backup: ['Backup feito. Responsável demais, tô até emocionado.']
@@ -354,6 +355,7 @@
       receitaSalva: ['Que bom! Dinheiro entrando!', 'Oba! Anotei a entrada.'],
       resumo: ['Você já anotou {n} coisas este mês. Que capricho!', 'Este mês está tudo anotadinho. Muito bem!'],
       apagado: ['Pronto, apaguei.'],
+      negativo: ['Este mês passou um pouquinho do que entrou. Vamos com calma, uma coisa de cada vez.'],
       senhaErrada: ['Hmm, não foi essa. Tenta de novo com calma.', 'Quase! Tenta mais uma vez.'],
       pinCriado: ['Pronto! Agora seu cantinho tem cadeado.'],
       backup: ['Cópia guardada! Seus dados estão protegidos.']

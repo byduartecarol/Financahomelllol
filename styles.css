@@ -311,3 +311,22 @@ button { cursor: pointer; }
 .two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 select.field { appearance: auto; }
 .content > .seg { margin-top: 4px; }
+
+/* ---------- etapa 2.1 ---------- */
+.card.total .bal { margin-top: 6px; align-self: flex-start; background: rgba(255, 255, 255, .18); border-radius: 99px; padding: 3px 12px; font-size: .9rem; }
+.card.total .bal.neg-pill { background: #fff; color: var(--danger); font-weight: 600; }
+.sum3 .neg-box { border-color: var(--danger); background: color-mix(in srgb, var(--danger) 8%, var(--card)); }
+.pay-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.pay-box { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 10px 12px; min-height: var(--tap); border-radius: 14px; border: 2px solid var(--line); background: var(--bg); text-align: left; }
+.pay-box span { font-size: .85rem; color: var(--muted); font-weight: 600; }
+.pay-box b { font-size: 1.05rem; font-variant-numeric: tabular-nums; }
+.pay-box.on { border-color: var(--pri); background: var(--card); box-shadow: 0 0 0 2px var(--pri) inset; }
+.cat-chip.new { border-style: dashed; color: var(--pri); }
+.emoji-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(44px, 1fr)); gap: 6px; }
+.emo-btn { min-height: 44px; border-radius: 12px; border: 2px solid transparent; background: var(--bg); font-size: 1.4rem; }
+.emo-btn.on { border-color: var(--pri); background: var(--card); }
+.emo-in { max-width: 120px; font-size: 1.4rem; text-align: center; }
+.cat-prev { display: flex; align-items: center; gap: 12px; padding: 4px 0 8px; }
+.cat-prev .emo { width: 52px; height: 52px; border-radius: 14px; background: var(--bg); display: grid; place-items: center; font-size: 1.8rem; }
+.cat-prev b { font-size: 1.15rem; }
+.topbar .who small { font-size: .78rem; }
