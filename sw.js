@@ -1,6 +1,6 @@
 // Service worker: guarda os arquivos do app pra funcionar sem internet.
 // IMPORTANTE: a cada nova versão publicada, aumente o número abaixo.
-const VERSION = 'fc-v1';
+const VERSION = 'fc-v2';
 const FILES = [
   './',
   'index.html',
@@ -8,7 +8,7 @@ const FILES = [
   'manifest.webmanifest',
   'js/db.js',
   'js/security.js',
-  'js/cat.js',
+  'js/pets.js',
   'js/app.js',
   'icons/icon-192.png',
   'icons/icon-512.png',

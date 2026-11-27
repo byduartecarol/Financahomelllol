@@ -14,9 +14,16 @@ Sem servidor, sem login de banco, sem conexão com banco. Backup por arquivo JSO
 - 5 senhas erradas → espera 30 s.
 - Ajustes por perfil: letra P/M/G/GG, claro/escuro, botões grandes, tom do gato,
   cor e acessório do gato, nome do perfil.
-- Gatinho original em SVG (`js/cat.js`) com humores feliz/normal/preocupado/triste/surpreso/dormindo.
-  Ele respira, pisca, abana o rabo (o ritmo muda com o humor), mexe a orelha ao ser tocado
-  e pula pra comemorar (`celebrate()` em app.js).
+- Mascotes originais em SVG (`js/pets.js`): 4 gatos (laranja, preto, branco, cinza) e 3 cães
+  (Lhasa Apso de pelo liso, Yorkshire, Lulu caramelo). Carinha nos avatares e corpo inteiro na tela inicial,
+  com caminha opcional e acessórios (óculos, laço, flor, chapéu, roupinha, coleira).
+- Humores: normal, feliz, preocupado, triste, surpreso, dormindo, bravo.
+- Vida própria (etapa 1.1): respira, pisca, abana o rabo; sozinho se espreguiça, lambe a pata ou olha
+  pros lados (cães se chacoalham). No toque, acena ou rola. Dormindo, acorda quando é tocado.
+  Comemoração com pulo e confete (`celebrate()` em app.js).
+- Bravo: só no tom debochado, depois de 6 cutucadas em 4 s. O gato estufa, mostra as garras e solta HSSS!,
+  o cão late (AU! AU!). Ele fica emburrado por 9 s. O tom acolhedor NUNCA fica bravo.
+- Aviso automático quando o Chrome está no modo "Site para computador".
 - Tela inicial: fala do gato, navegação entre meses, "Falta pagar" (ainda R$ 0) e lembrete de backup.
 - Backup por perfil: salvar (.json), enviar pelo compartilhar do Android (quando suportado) e restaurar.
   O backup não leva a senha.
@@ -34,7 +41,7 @@ manifest.webmanifest  instalação no Android
 sw.js                 offline. AUMENTE a VERSION a cada publicação
 js/db.js              IndexedDB (profiles, records)
 js/security.js        hash de PIN e código de recuperação
-js/cat.js             desenho do gato e falas por tom
+js/pets.js            desenho dos mascotes e falas por tom
 js/app.js             telas e ações
 icons/                ícones PNG
 ```

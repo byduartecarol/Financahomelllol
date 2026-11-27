@@ -1,23 +1,23 @@
-/* Finanças da Casa — Fase 1, Etapa 1
-   Perfis estilo Netflix, senha opcional, recuperação, ajustes por perfil, gatinho e backup. */
+/* Finanças da Casa — Fase 1, Etapa 1.1
+   Perfis estilo Netflix, senha opcional, recuperação, ajustes por perfil, mascotes animados e backup. */
 (function () {
-  const APP_VERSION = '0.1.0 (etapa 1)';
+  const APP_VERSION = '0.2.0 (etapa 1.1)';
   const $app = document.getElementById('app');
 
   const DEFAULT_PROFILES = [
-    { id: 'eu', name: 'Eu', owner: true, color: '#5d6170', acc: 'oculos',
-      prefs: { font: 'p', theme: 'claro', tone: 'debochado', big: false } },
-    { id: 'mae', name: 'Mãe', owner: false, color: '#f2a65a', acc: 'flor',
-      prefs: { font: 'g', theme: 'claro', tone: 'acolhedor', big: true } }
+    { id: 'eu', name: 'Eu', owner: true, pet: 'gato-cinza', acc: 'oculos',
+      prefs: { font: 'p', theme: 'claro', tone: 'debochado', big: false, bed: true } },
+    { id: 'mae', name: 'Mãe', owner: false, pet: 'gato-laranja', acc: 'flor',
+      prefs: { font: 'g', theme: 'claro', tone: 'acolhedor', big: true, bed: true } }
   ];
-  const CAT_COLORS = ['#f2a65a', '#5d6170', '#c9c2b8', '#3b3b3b', '#e7d3b0', '#b0825a', '#8fa8c8'];
-  const ACCS = [['oculos', 'Óculos'], ['laco', 'Laço'], ['flor', 'Flor'], ['chapeu', 'Chapéu'], ['none', 'Nenhum']];
+  const ACCS = [['oculos', 'Óculos'], ['laco', 'Laço'], ['flor', 'Flor'], ['chapeu', 'Chapéu'], ['roupinha', 'Roupinha'], ['coleira', 'Coleira'], ['none', 'Nenhum']];
 
   // Estado da tela
   const S = {
     profiles: [], cur: null, view: 'profiles', p: {},
     buf: '', msg: '', shake: false, fala: '', mood: 'normal',
-    month: firstOfMonth(new Date()), fails: {}, lockUntil: {}, hiddenAt: 0
+    month: firstOfMonth(new Date()), fails: {}, lockUntil: {}, hiddenAt: 0,
+    taps: [], angryUntil: 0
   };
 
   /* ---------- utilidades ---------- */
@@ -34,17 +34,77 @@
     const s = new Intl.DateTimeFormat('pt-BR', { month: 'long', year: 'numeric' }).format(d);
     return s.charAt(0).toUpperCase() + s.slice(1);
   }
-  const cat = (p, mood, extra = '') => `<span class="catbox ${extra}">${catSVG({ color: p.color, acc: p.acc, mood, label: 'Gatinho de ' + p.name })}</span>`;
+  // Carinha do mascote (avatares) e corpo inteiro (tela principal)
+  const cat = (p, mood, extra = '') => `<span class="catbox ${extra}">${Pet.face({ pet: p.pet, acc: p.acc, mood, label: 'Mascote de ' + p.name })}</span>`;
+  const petFull = (p, mood, extra = '') => `<span class="petbox ${extra}">${Pet.full({ pet: p.pet, acc: p.acc, mood, bed: p.prefs.bed !== false, label: 'Mascote de ' + p.name })}</span>`;
+  const sp = (p) => Pet.get(p.pet).sp;
+  const catFala = (t, situ, avoid) => Pet.fala(t, situ, S.cur ? sp(S.cur) : 'gato', avoid);
 
   async function save(p) { await DB.put('profiles', p); }
 
-  // Pulinho de comemoração em todo gatinho visível (conta paga, meta batida etc.)
-  function celebrate() {
-    requestAnimationFrame(() => document.querySelectorAll('#app .catbox').forEach((c) => {
-      c.classList.remove('celebra'); void c.offsetWidth; c.classList.add('celebra');
-      setTimeout(() => c.classList.remove('celebra'), 1900);
-    }));
+  /* ---------- vida do mascote ---------- */
+  // Toca uma ação (classe CSS act-*) no mascote grande da tela.
+  function act(name, ms) {
+    const box = document.querySelector('#app .petbox');
+    if (!box) return;
+    box.className = box.className.replace(/\bact-\S+/g, '').trim();
+    void box.offsetWidth;
+    box.classList.add('act-' + name);
+    clearTimeout(act._t);
+    act._t = setTimeout(() => box.classList.remove('act-' + name), ms);
   }
+  // Balõezinhos que saltam do mascote ("AU! AU!", "HSSS!", confete…)
+  function pops(items, cls = 'pop') {
+    const hero = document.querySelector('#app .pet-stage');
+    if (!hero) return;
+    items.forEach((t, i) => setTimeout(() => {
+      const s = document.createElement('span');
+      s.className = cls; s.textContent = t;
+      s.style.left = (30 + Math.random() * 40) + '%';
+      s.style.setProperty('--r', (Math.random() * 40 - 20) + 'deg');
+      hero.append(s);
+      setTimeout(() => s.remove(), 1400);
+    }, i * 380));
+  }
+  function confetti() {
+    const hero = document.querySelector('#app .pet-stage');
+    if (!hero) return;
+    const colors = ['#ef5d87', '#ffcf4d', '#5fb39b', '#8fb9ea', '#f08a3c'];
+    for (let i = 0; i < 26; i++) {
+      const s = document.createElement('i');
+      s.className = 'confete';
+      s.style.left = Math.random() * 100 + '%';
+      s.style.background = colors[i % colors.length];
+      s.style.animationDelay = Math.random() * 0.3 + 's';
+      s.style.setProperty('--x', (Math.random() * 80 - 40) + 'px');
+      hero.append(s);
+      setTimeout(() => s.remove(), 1800);
+    }
+  }
+  // Comemoração: pulinho + confete (conta paga, meta batida, backup feito…)
+  function celebrate() {
+    requestAnimationFrame(() => {
+      if (document.querySelector('#app .petbox')) { act('jump', 1900); confetti(); }
+      document.querySelectorAll('#app .catbox').forEach((c) => {
+        c.classList.remove('celebra'); void c.offsetWidth; c.classList.add('celebra');
+        setTimeout(() => c.classList.remove('celebra'), 1900);
+      });
+    });
+  }
+  // De tempos em tempos o mascote faz algo sozinho (só na tela inicial)
+  setInterval(() => {
+    if (S.view !== 'home' || document.hidden || !S.cur) return;
+    if (S.mood === 'dormindo' || S.mood === 'bravo' || Math.random() < 0.35) return;
+    const box = document.querySelector('#app .petbox');
+    if (!box || /act-/.test(box.className)) return;
+    const acts = Pet.idleActs(S.cur.pet);
+    act(acts[Math.floor(Math.random() * acts.length)], 2400);
+  }, 6000);
+
+  // Modo "Site para computador" ligado no celular deixa tudo minúsculo
+  const desktopMode = () => navigator.maxTouchPoints > 0 && window.innerWidth >= 900 &&
+    Math.min(screen.width, screen.height) < 600;
+  const desktopWarn = () => desktopMode() ? `<div class="desk-warn">As letras estão pequenas? Desligue <b>"Site para computador"</b> no menu ⋮ do Chrome e abra o app de novo.</div>` : '';
 
   function applyPrefs(p) {
     const r = document.documentElement;
@@ -173,9 +233,13 @@
         <button class="icon-btn" data-action="lock" aria-label="Sair do perfil">Sair</button>
       </header>
       <main class="content">
+        ${desktopWarn()}
         <section class="hero">
-          <button class="cat-big" data-action="poke" aria-label="Fazer carinho no gato">${cat(p, S.mood, 'bounce' + (S.poked ? ' poked' : ''))}</button>
           <p class="bubble">${esc(S.fala)}</p>
+          <div class="pet-stage">
+            <button class="pet-btn" data-action="poke" aria-label="Fazer carinho no mascote">${petFull(p, S.mood, 'live')}</button>
+            ${S.mood === 'dormindo' ? '<span class="zz" aria-hidden="true"><i>z</i><i>z</i><i>Z</i></span>' : ''}
+          </div>
         </section>
         <section class="month-nav">
           <button class="round" data-action="month" data-d="-1" aria-label="Mês anterior">‹</button>
@@ -219,6 +283,7 @@
     return `<div class="page">
       <header class="topbar"><div class="who"><small>Ajustes de</small><b>${esc(p.name)}</b></div></header>
       <main class="content">
+        ${desktopWarn()}
         <section class="card">
           <h3>Aparência</h3>
           <label class="lbl">Tamanho da letra</label>
@@ -230,14 +295,18 @@
         </section>
 
         <section class="card">
-          <h3>Gatinho</h3>
-          <div class="cat-preview">${cat(p, 'feliz')}</div>
-          <label class="lbl">Jeito de falar</label>
-          ${seg('tone', [['debochado', 'Debochado'], ['acolhedor', 'Acolhedor']], p.prefs.tone)}
-          <label class="lbl">Cor</label>
-          <div class="swatches">${CAT_COLORS.map((c) => `<button class="sw ${p.color === c ? 'on' : ''}" style="background:${c}" data-action="color" data-v="${c}" aria-label="Cor ${c}"></button>`).join('')}</div>
+          <h3>Mascote</h3>
+          <div class="pet-preview">${petFull(p, 'feliz', 'live')}</div>
+          <label class="lbl">Escolha seu bichinho</label>
+          <div class="pet-grid">${Object.entries(Pet.list).map(([id, c]) => `<button class="pet-pick ${p.pet === id ? 'on' : ''}" data-action="petPick" data-v="${id}" aria-pressed="${p.pet === id}">
+            ${Pet.face({ pet: id, mood: 'feliz', label: c.nome })}<span>${c.nome}</span></button>`).join('')}</div>
           <label class="lbl">Acessório</label>
           <div class="chips">${ACCS.map(([v, l]) => `<button class="chip ${p.acc === v ? 'on' : ''}" data-action="acc" data-v="${v}">${l}</button>`).join('')}</div>
+          <label class="lbl">Caminha</label>
+          ${seg('bed', [['1', 'Com caminha'], ['0', 'Sem caminha']], p.prefs.bed === false ? '0' : '1')}
+          <label class="lbl">Jeito de falar</label>
+          ${seg('tone', [['debochado', 'Debochado'], ['acolhedor', 'Acolhedor']], p.prefs.tone)}
+          <p class="tiny">${p.prefs.tone === 'acolhedor' ? 'Acolhedor: só fala com carinho e nunca fica bravo.' : 'Debochado: zoa com você e fica bravo se você cutucar demais.'}</p>
         </section>
 
         <section class="card">
@@ -379,7 +448,7 @@
     const records = await DB.byProfile(p.id);
     const payload = {
       app: 'financas-casa', schema: 1, exportedAt: new Date().toISOString(), appVersion: APP_VERSION,
-      profile: { id: p.id, name: p.name, color: p.color, acc: p.acc, prefs: p.prefs },
+      profile: { id: p.id, name: p.name, pet: p.pet, acc: p.acc, prefs: p.prefs },
       records
     };
     const name = `financas-casa_${slug(p.name)}_${ymd()}.json`;
@@ -433,7 +502,7 @@
     await DB.replaceProfileRecords(p.id, recs);
     if (!otherProfile && data.profile) {
       if (data.profile.prefs) p.prefs = { ...p.prefs, ...data.profile.prefs };
-      if (data.profile.color) p.color = data.profile.color;
+      if (data.profile.pet && Pet.list[data.profile.pet]) p.pet = data.profile.pet;
       if (data.profile.acc) p.acc = data.profile.acc;
       await save(p);
     }
@@ -492,18 +561,46 @@
       enter(p);
     },
     poke() {
-      S.mood = 'surpreso'; S.poked = true;
-      S.fala = catFala(tone(S.cur), 'cutucar', S.fala);
+      const p = S.cur;
+      const t = tone(p);
+      const now = Date.now();
+      // Dormindo: acorda assustado
+      if (S.mood === 'dormindo') {
+        S.mood = 'surpreso'; S.fala = catFala(t, 'acordar'); render();
+        clearTimeout(A._t);
+        A._t = setTimeout(() => { if (S.view === 'home') { S.mood = 'feliz'; render(); } }, 1200);
+        return;
+      }
+      if (S.mood === 'bravo' && now < S.angryUntil) {
+        act('angry', 1500); pops(sp(p) === 'cao' ? ['AU!'] : ['HSSS!'], 'pop bark');
+        return;
+      }
+      S.taps = S.taps.filter((x) => now - x < 4000).concat(now);
+      // Muitas cutucadas seguidas: o debochado fica BRAVO (o acolhedor nunca)
+      if (S.taps.length >= 6 && t === 'debochado') {
+        S.taps = [];
+        S.mood = 'bravo'; S.angryUntil = now + 9000;
+        S.fala = catFala(t, 'bravo'); render();
+        act('angry', 1700);
+        pops(sp(p) === 'cao' ? ['AU!', 'AU!'] : ['HSSS!'], 'pop bark');
+        clearTimeout(A._t);
+        A._t = setTimeout(() => {
+          if (S.view === 'home' && S.mood === 'bravo') { S.mood = 'normal'; S.fala = catFala(t, 'calmo'); render(); }
+        }, 9000);
+        return;
+      }
+      S.mood = 'feliz';
+      S.fala = catFala(t, S.taps.length >= 6 ? 'bravo' : 'cutucar', S.fala);
+      if (S.taps.length >= 6) S.taps = [];
       render();
-      clearTimeout(A._t);
-      A._t = setTimeout(() => { S.poked = false; if (S.view === 'home') { S.mood = 'feliz'; render(); } }, 1000);
+      act(Math.random() < 0.6 ? 'wave' : 'roll', 1500);
     },
+    async petPick(d) { S.cur.pet = d.v; await save(S.cur); render(); act('jump', 1900); },
     month(d) { S.month = new Date(S.month.getFullYear(), S.month.getMonth() + Number(d.d), 1); render(); },
     async pref(d) {
-      S.cur.prefs[d.k] = d.k === 'big' ? d.v === '1' : d.v;
+      S.cur.prefs[d.k] = d.k === 'big' || d.k === 'bed' ? d.v === '1' : d.v;
       await save(S.cur); render();
     },
-    async color(d) { S.cur.color = d.v; await save(S.cur); render(); },
     async acc(d) { S.cur.acc = d.v; await save(S.cur); render(); },
     async rename() {
       const v = document.getElementById('pname').value.trim();
@@ -578,6 +675,15 @@
         S.profiles = DEFAULT_PROFILES.map((p) => ({ ...p, prefs: { ...p.prefs }, pin: null, recovery: null,
           createdAt: now, lastBackupAt: null, seenWelcome: false, resetNotice: null }));
         for (const p of S.profiles) await save(p);
+      }
+      // Migração da versão 0.1: cor do gato -> mascote escolhido
+      for (const p of S.profiles) {
+        if (!p.pet || !Pet.list[p.pet]) {
+          p.pet = p.owner ? 'gato-cinza' : 'gato-laranja';
+          delete p.color;
+          if (p.prefs.bed === undefined) p.prefs.bed = true;
+          await save(p);
+        }
       }
       // Ordem fixa: Mãe primeiro, Eu depois (o dono por último)
       S.profiles.sort((a, b) => Number(a.owner) - Number(b.owner));
