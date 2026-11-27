@@ -327,45 +327,66 @@
      {som}: "Miau" ou "Au". O tom acolhedor NUNCA culpa e nunca fica bravo. */
   const FALAS = {
     debochado: {
-      boasVindas: ['Bem-vinda! Agora nenhum gasto escapa de mim. Nem aquele de madrugada.', 'Oi! Eu vou saber pra onde foi seu dinheiro. Todinho.'],
+      // ---- entrada e estado do mês ----
+      boasVindas: ['Bem-vinda! A partir de hoje nenhum gasto escapa de mim. Nem aquele de madrugada.', 'Oi! Vou saber pra onde vai cada centavo seu. Pode ir se acostumando.'],
       vazio: ['Zero lançamentos. Ou você virou monge, ou tá me escondendo coisa.', 'Tô dormindo porque não tem nada pra eu julgar. Por enquanto.', 'Silêncio total por aqui. Suspeito.'],
-      acordar: ['Hã?! Eu não tava dormindo, tava… analisando.', 'Me acordou pra quê? Pra ver R$ 0,00?'],
-      cutucar: ['Cutucar o mascote não paga conta, viu?', '{som}. Isso foi um "me deixa em paz".', 'Se cada cutucada valesse R$ 1, você já tinha reserva de emergência.', 'Tô de olho no seu dedo e no seu cartão.'],
-      bravo: ['CHEGA! Vai cutucar a fatura do cartão!', 'Mais uma cutucada e eu escondo o seu Pix.', '{som}!! Respeita meu espaço pessoal!'],
-      calmo: ['Tá, passou. Mas eu não esqueci.', 'Ok, te perdoo. Dessa vez.'],
+      resumo: ['Mês nos trilhos: saiu {saiu} e ainda sobram {sobra}. Não estraga, hein.', 'Sobrando {sobra}. Tô quase orgulhoso. Quase.', 'Por enquanto tudo certo. Mas eu sigo de olho no seu cartão.'],
+      apertado: ['Ainda tá no azul, mas é um azul bem clarinho: sobram só {sobra}. Freia aí.', 'Sobram {sobra}. Tá na hora de fingir que o delivery não existe.'],
+      negativo: ['Opa! Saiu mais do que entrou: {sobra}. O mês tá no vermelho.', 'Vermelho detectado: {sobra}. Hora de cortar o supérfluo, chefe.'],
+      semEntrada: ['Já saiu {saiu} e não entrou nada? Anota o salário aí, vai.', 'Só vejo dinheiro saindo. Cadê as entradas? Anota quando cair!'],
+      naoEss: ['{pct} dos seus gastos foram não essenciais. Eu vi, tá?', 'Não essenciais já são {pct} do mês. A vontade de comprar tá ganhando de você.'],
+      faturaVencendo: ['A fatura do {cartao} vence {quando}: {valor}. Só lembrando, com carinho e julgamento.', 'Ei, {cartao} vence {quando}. {valor}. Não me faz passar vergonha.'],
+      faturaAtrasada: ['A fatura do {cartao} tá ATRASADA! {valor}. Juros de cartão são meu pesadelo.', 'Fatura do {cartao} atrasada. Paga logo antes que os juros te achem.'],
+      // ---- reações a ações ----
       gastoSalvo: ['Anotado. Não adianta me olhar assim.', 'Registrado. Seu dinheiro agradece a sinceridade.', 'Mais um pro caderninho.'],
       gastoAlto: ['EITA! Tudo isso de uma vez?!', 'Opa, opa. Isso foi um gasto ou um assalto?', 'Respira. Eu respiro também. Que gastão!'],
       receitaSalva: ['Dinheiro entrando! Finalmente uma notícia boa.', 'Opa, caiu! Não gasta tudo hoje, hein.'],
-      resumo: ['Esse mês já saiu {saiu}. Tô contando cada centavo.', 'Até agora, {saiu} de gastos. Sigo de olho.'],
       apagado: ['Apagado. Vou fingir que não vi.'],
-      negativo: ['Opa! Entrou no vermelho este mês. Gastou mais do que entrou.', 'Alerta: o mês ficou negativo. Respira e segura o cartão.'],
+      faturaPaga: ['Fatura paga! Olha só, adulta responsável.', 'Fatura quitada. Tô até emocionado, de verdade.'],
+      // ---- cutucar: só brincadeira, sem falar de dinheiro ----
+      acordar: ['Hã?! Eu não tava dormindo, tava… analisando.', 'Me acordou pra quê? Tava sonhando com um mês sem fatura.'],
+      cutucar: ['Ei! Dedo pra lá.', '{som}. Isso foi um "me deixa em paz".', 'Cutucar o mascote não paga conta, viu?', 'Tô trabalhando aqui, ó.', 'De novo? Tô contando as cutucadas também.'],
+      bravo: ['CHEGA! Vai cutucar a fatura do cartão!', 'Mais uma cutucada e eu escondo o seu Pix.', '{som}!! Respeita meu espaço pessoal!'],
+      calmo: ['Tá, passou. Mas eu não esqueci.', 'Ok, te perdoo. Dessa vez.'],
+      // ---- sistema ----
       senhaErrada: ['Errou. Tô de olho.', 'Não é essa não, hein.'],
       pinCriado: ['Senha criada. Agora nem eu entro sem pedir licença.'],
       backup: ['Backup feito. Responsável demais, tô até emocionado.']
     },
     acolhedor: {
+      // Gentil e honesto: nunca culpa, mas também não esconde quando é hora de frear.
       boasVindas: ['Oi! Que bom ter você aqui. Vamos cuidar das contas juntinhas, no seu tempo.', 'Seja bem-vinda! Aqui é o seu cantinho. O que você anota é só seu.'],
-      vazio: ['Tudo tranquilo por aqui. Quando quiser anotar algo, eu acordo.', 'Estou descansando. Pode me chamar quando quiser.', 'Nada anotado ainda, e tudo bem. Um passo de cada vez.'],
-      acordar: ['Oi! Acordei! Que bom te ver.', 'Hmm, que soninho bom. Estou aqui!'],
-      cutucar: ['Oi, oi! Estou aqui com você.', 'Que carinho bom! Obrigado.', 'Você está indo muito bem, sabia?', 'Respira fundo. A gente resolve uma coisa de cada vez.'],
-      bravo: ['Hihi, assim faz cócegas!'],
-      calmo: ['Estou aqui, pertinho.'],
-      gastoSalvo: ['Anotado! Obrigado por cuidar disso.', 'Prontinho, guardei aqui.', 'Muito bem! Anotar já é metade do caminho.'],
+      vazio: ['Tudo tranquilo por aqui. Quando quiser anotar algo, eu acordo.', 'Nada anotado este mês ainda, e tudo bem. Um passo de cada vez.'],
+      resumo: ['O mês está sob controle: saiu {saiu} e ainda sobram {sobra}. Assim mesmo!', 'Sobrando {sobra} até agora. Vamos manter esse ritmo tranquilo.', 'Tudo nos eixos este mês. Que bom!'],
+      apertado: ['Vamos com calma: ainda está no azul, mas sobram só {sobra}. Dá pra dar uma freadinha.', 'O mês está mais apertadinho. Nada de pânico, só vamos segurar um pouco os gastos que não são essenciais.'],
+      negativo: ['Este mês saiu um pouco mais do que entrou ({sobra}). Sem culpa: vamos com calma e dar uma freada no que não é essencial.', 'O mês ficou no vermelho, mas dá pra ajeitar. Uma coisa de cada vez, tá?'],
+      semEntrada: ['Já saíram {saiu} este mês. Quando entrar dinheiro, anota aqui que eu fico feliz!', 'Lembrete carinhoso: ainda não tem nenhuma entrada anotada neste mês.'],
+      naoEss: ['{pct} dos gastos foram com coisas não essenciais. Tudo bem se divertir, só vamos ficar de olho, tá?', 'Os não essenciais já são {pct} do mês. Que tal segurar um pouquinho até o próximo?'],
+      faturaVencendo: ['Lembrete: a fatura do {cartao} vence {quando} ({valor}).', 'Só pra não esquecer: {cartao} vence {quando}, {valor}.'],
+      faturaAtrasada: ['A fatura do {cartao} passou do vencimento. Quando puder, dá uma olhadinha, tá?', 'Ficou pendente a fatura do {cartao} ({valor}). Vamos resolver juntinhas?'],
+      gastoSalvo: ['Anotado! Que bom que você cuida disso.', 'Prontinho, guardei aqui.', 'Anotar já é metade do caminho. Muito bem!'],
       gastoAlto: ['Esse foi um gasto maior, né? Tudo bem, fica registrado.', 'Anotei! Gastos grandes acontecem. O importante é saber.'],
       receitaSalva: ['Que bom! Dinheiro entrando!', 'Oba! Anotei a entrada.'],
-      resumo: ['Você já anotou {n} coisas este mês. Que capricho!', 'Este mês está tudo anotadinho. Muito bem!'],
       apagado: ['Pronto, apaguei.'],
-      negativo: ['Este mês passou um pouquinho do que entrou. Vamos com calma, uma coisa de cada vez.'],
+      faturaPaga: ['Fatura paga! Que alívio, parabéns!', 'Conta em dia! Fiquei feliz por você.'],
+      acordar: ['Oi! Acordei! Que bom te ver.', 'Hmm, que soninho bom. Estou aqui!'],
+      cutucar: ['Hihi, cócegas!', 'Esse carinho eu aceito sempre.', 'Oi, oi! Estou aqui.', 'Ronron… ai, que delícia!', 'Ai, que gostoso. Mais um?'],
+      bravo: ['Hihi, assim faz muitas cócegas!'],
+      calmo: ['Estou aqui, pertinho.'],
       senhaErrada: ['Hmm, não foi essa. Tenta de novo com calma.', 'Quase! Tenta mais uma vez.'],
       pinCriado: ['Pronto! Agora seu cantinho tem cadeado.'],
       backup: ['Cópia guardada! Seus dados estão protegidos.']
     }
   };
+  // Cachorro não ronrona :)
+  const DOG_SWAP = { 'Ronron… ai, que delícia!': 'Abanei o rabo todinho!' };
   function fala(tone, situ, sp, avoid) {
     const list = (FALAS[tone] || FALAS.acolhedor)[situ] || [''];
     let pool = list.length > 1 && avoid ? list.filter((t) => t.replace('{som}', sp === 'cao' ? 'Au' : 'Miau') !== avoid) : list;
     if (!pool.length) pool = list;
-    return pool[Math.floor(Math.random() * pool.length)].replace('{som}', sp === 'cao' ? 'Au' : 'Miau');
+    let out = pool[Math.floor(Math.random() * pool.length)].replace('{som}', sp === 'cao' ? 'Au' : 'Miau');
+    if (sp === 'cao' && DOG_SWAP[out]) out = DOG_SWAP[out];
+    return out;
   }
 
   window.Pet = {

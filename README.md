@@ -48,8 +48,22 @@ Sem servidor, sem login de banco, sem conexão com banco. Backup por arquivo JSO
 - Carteira: tocar no cartão ou na conta mostra os lançamentos do mês nele. "Editar" fica no topo, e dá pra lançar direto nele.
 - Extrato "Por forma de pagamento" (Pix, débito, crédito, dinheiro), tocando pra filtrar.
 
-**Próxima etapa (Fase 1, etapa 3):** Incluir também: valor que já existia na fatura aberta e parcelamentos em andamento (parcela × quantas faltam), sem redigitar compras antigas. cartão de crédito com fatura: compra entra na fatura certa pelo dia
-de fechamento, parcelas espalhadas nas faturas futuras, fatura com total, essencial e não essencial.
+**Fase 1 — Etapa 3 (pronta):**
+- Fatura do cartão (`lanc.js`, `Money.faturaOf`): a fatura é identificada pelo mês em que vence. Compra no dia do
+  fechamento ou depois vai pra fatura seguinte. Parcelas são espalhadas nas faturas futuras, e a diferença de centavos fica na 1ª.
+- "Já tinha coisa no cartão": `cardopen` (valor que já estava numa fatura) e `cardinst` (parcelamento em andamento:
+  valor da parcela, parcela atual, total → `remaining` faturas a partir de `firstKey`).
+- Fatura: status (aberta, fechada, vence amanhã/hoje, atrasada, paga), total, essencial × não essencial × sem etiqueta,
+  itens, "Marquei como paga" (`fatpaid`, com comemoração). Pagar a fatura NÃO entra como gasto, pra não contar em dobro:
+  o gasto já foi contado na compra.
+- Início: "Faturas do cartão" com a próxima a pagar de cada cartão. Extrato: cada compra no crédito diz em qual fatura cai.
+- Carteira: seção "Formas de pagamento" (Pix, Débito, Crédito, Dinheiro) com o total do mês, levando ao extrato filtrado.
+- Frases do mascote por situação real (`moodOnEnter`): fatura atrasada > fatura vencendo (≤3 dias) > mês negativo >
+  sem entrada anotada > mês apertado (sobra <10%) > muito não essencial (≥40%) > tudo bem. Cutucar é só brincadeira.
+  O tom acolhedor é gentil e honesto: sem culpa, mas sugere "dar uma freada".
+
+**Próxima etapa (Fase 1, etapa 4):** contas fixas (aluguel, internet; luz e água variáveis com média dos últimos meses),
+checklist do mês com status, lembretes 3 dias antes e no dia, exportação .ics pro Google Agenda, e "quanto falta pagar" no Início.
 
 ## Estrutura
 ```

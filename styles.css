@@ -330,3 +330,17 @@ select.field { appearance: auto; }
 .cat-prev .emo { width: 52px; height: 52px; border-radius: 14px; background: var(--bg); display: grid; place-items: center; font-size: 1.8rem; }
 .cat-prev b { font-size: 1.15rem; }
 .topbar .who small { font-size: .78rem; }
+
+/* ---------- etapa 3: faturas ---------- */
+.fat-r { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; flex: none; }
+.fat-r b { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.st { display: inline-block; font-size: .72rem; font-weight: 700; padding: 2px 8px; border-radius: 99px; background: var(--bg); color: var(--muted); white-space: nowrap; }
+.st-aberta { background: #e3eef9; color: #2f5f8f; }
+.st-fechada { background: var(--warn-bg); color: #a8601f; }
+.st-logo, .st-hoje { background: #ffe1cc; color: #b4451c; }
+.st-atrasada { background: #fde0de; color: var(--danger); }
+.st-paga { background: #dff1e8; color: #23704f; }
+.card.total.fat .st { align-self: flex-start; margin-bottom: 4px; }
+.card.total.st-bg-atrasada { background: var(--danger); }
+.card.total.st-bg-paga { background: #3c8d6c; }
+.field.money { font-size: 1.3rem; font-weight: 700; }

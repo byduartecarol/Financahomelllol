@@ -38,7 +38,7 @@
     '🧴', '🧹', '🔧', '💡', '💧', '🔥', '🌱', '👶', '🧸', '🐶', '🐱', '🏥', '🦷', '👓', '🙏', '⛪', '💍', '🎂', '🏖️', '💰', '🧾', '📦'];
   let custom = []; // categorias da pessoa (records type:'cat'), atualizadas pelo app
 
-  window.Money = {
+  const Money = window.Money = {
     CATS_OUT, CATS_IN, PAYS, BANCOS, EMOJIS,
     setCustom(list) { custom = (list || []).map((c) => ({ id: c.id, nome: c.name, emo: c.emo || '🏷️', ess: !!c.ess, dir: c.dir || 'out', archived: !!c.archived, custom: true })); },
     customList() { return custom.filter((c) => !c.archived); },
@@ -64,6 +64,36 @@
       if (diff === 1) return 'Ontem';
       const l = d.toLocaleDateString('pt-BR', { weekday: 'short', day: 'numeric', month: 'short' }).replace(/\./g, '');
       return l.charAt(0).toUpperCase() + l.slice(1);
+    },
+    addMonths(key, n) { const d = Money.parse(key + '-01'); return Money.mkey(new Date(d.getFullYear(), d.getMonth() + n, 1)); },
+    monthName(key) { return Money.parse(key + '-01').toLocaleDateString('pt-BR', { month: 'long' }); },
+    shortDate(d) { return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }); },
+    // Dia limitado ao tamanho do mês (ex.: dia 31 em fevereiro vira 28/29)
+    dayIn(key, day) { const d = Money.parse(key + '-01'); const dim = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate(); return new Date(d.getFullYear(), d.getMonth(), Math.min(day, dim)); },
+    /* ---- Fatura do cartão ----
+       A fatura é identificada pelo MÊS EM QUE VENCE ("AAAA-MM").
+       Compra no dia do fechamento ou depois -> fatura seguinte. */
+    faturaOf(dateStr, closeDay, dueDay) {
+      const d = Money.parse(dateStr);
+      let m = d.getMonth();
+      if (d.getDate() >= closeDay) m += 1;   // já fechou: vai pra próxima
+      if (dueDay <= closeDay) m += 1;        // vence no mês seguinte ao fechamento
+      return Money.mkey(new Date(d.getFullYear(), m, 1));
+    },
+    faturaDates(key, closeDay, dueDay) {
+      const due = Money.dayIn(key, dueDay);
+      const closeKey = dueDay <= closeDay ? Money.addMonths(key, -1) : key;
+      return { close: Money.dayIn(closeKey, closeDay), due };
+    },
+    // Divide em parcelas; a diferença de centavos vai na 1ª
+    split(cents, n) { const base = Math.floor(cents / n); return Array.from({ length: n }, (_, i) => base + (i === 0 ? cents - base * n : 0)); },
+    // "1.234,56" / "1234.56" / "50" -> centavos
+    parseBRL(str) {
+      let t = String(str || '').replace(/[^\d.,]/g, '');
+      if (!t) return 0;
+      if (t.includes(',')) t = t.replace(/\./g, '').replace(',', '.');
+      else if ((t.match(/\./g) || []).length > 1 || /\.\d{3}$/.test(t)) t = t.replace(/\./g, '');
+      return Math.round(parseFloat(t) * 100) || 0;
     },
     // Gasto "alto de uma vez": R$ 300+ ou 25%+ do que entrou no mês
     isBig(cents, incomeMonth) { return cents >= 30000 || (incomeMonth > 0 && cents >= incomeMonth * 0.25); }

@@ -1,7 +1,7 @@
 /* Finanças da Casa — Fase 1, Etapa 1.1
    Perfis estilo Netflix, senha opcional, recuperação, ajustes por perfil, mascotes animados e backup. */
 (function () {
-  const APP_VERSION = '0.3.2 (etapa 2.1)';
+  const APP_VERSION = '0.4.0 (etapa 3)';
   const $app = document.getElementById('app');
 
   const DEFAULT_PROFILES = [
@@ -364,7 +364,7 @@
     } else applyPrefs(S.cur);
     const views = { profiles: vProfiles, pin: vPin, code: vCode, recover: vRecover, home: vHome, settings: vSettings, ...L.views };
     if (!views[S.view] || (L.views[S.view] && !S.cur)) S.view = S.cur ? 'home' : 'profiles';
-    if ((S.view === 'lancar' && !S.f) || (S.view === 'wallet' && !S.w) || (S.view === 'catform' && !S.c) || (S.view === 'wdetail' && !S.wd)) S.view = 'home';
+    if ((S.view === 'lancar' && !S.f) || (S.view === 'wallet' && !S.w) || (S.view === 'catform' && !S.c) || (S.view === 'wdetail' && !S.wd) || (S.view === 'cardprev' && !S.cp)) S.view = 'home';
     $app.innerHTML = views[S.view]();
   }
 
@@ -393,7 +393,7 @@
     }
   }
 
-  function toProfiles() { S.cur = null; S.recs = []; S.f = null; S.w = null; S.c = null; S.wd = null; Money.setCustom([]); go('profiles'); }
+  function toProfiles() { S.cur = null; S.recs = []; S.f = null; S.w = null; S.c = null; S.wd = null; S.cp = null; S.fk = null; Money.setCustom([]); go('profiles'); }
 
   /* ---------- senha ---------- */
   async function setPin(p, pin) {
