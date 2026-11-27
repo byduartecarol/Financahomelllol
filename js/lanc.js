@@ -18,9 +18,10 @@
     const sortTx = (a, b) => b.date.localeCompare(a.date) || String(b.createdAt || '').localeCompare(String(a.createdAt || ''));
 
     const syncCats = () => M.setCustom(S.recs.filter((r) => r.type === 'cat'));
-    async function reload() { S.recs = S.cur ? await DB.byProfile(S.cur.id) : []; syncCats(); }
+    // Os registros vêm do "caderno" ativo: o do próprio perfil ou o administrado (Finanças da Mãe)
+    async function reload() { S.recs = S.cur ? await DB.byProfile(X.ledger()) : []; syncCats(); }
     async function put(rec) {
-      rec.profileId = S.cur.id;
+      rec.profileId = X.ledger();
       await DB.put('records', rec);
       const i = S.recs.findIndex((r) => r.id === rec.id);
       if (i >= 0) S.recs[i] = rec; else S.recs.push(rec);
@@ -139,7 +140,7 @@
     }
     const dueRow = (d) => `<button class="due-row ${d.paid ? 'paid' : ''}" data-action="${d.kind === 'bill' ? 'openBill' : 'openFatura'}" data-id="${esc(d.id)}" data-k="${d.key}">
         <span class="check ${d.paid ? 'on' : ''}" aria-hidden="true">${d.paid ? '✓' : ''}</span>
-        <span class="tx-mid"><b>${esc(d.emo)} ${esc(d.name)}</b><small>vence ${M.shortDate(d.due)}${d.estimated ? ' · valor estimado' : ''}</small></span>
+        <span class="tx-mid"><b>${esc(d.emo)} ${esc(d.name)}</b><small>vence ${M.shortDate(d.due)}${d.estimated ? ' · <span class="hint-in">estimado: toque pra informar o valor</span>' : ''}</small></span>
         <span class="fat-r"><b>${d.estimated ? '~' : ''}${brl(d.cents)}</b><span class="st st-${d.st.id}">${esc(d.st.label)}</span></span></button>`;
 
     /* Reação do mascote ao salvar um lançamento: olha o mês inteiro, não só o gasto. */
@@ -295,7 +296,7 @@
       }
       return `<div class="page form-page">
         <header class="topbar"><button class="icon-btn" data-action="lancBack">‹ Voltar</button>
-          <div class="who"><b>${f.id ? 'Editar' : 'Novo'} ${f.dir === 'out' ? 'gasto' : 'receita'}</b></div></header>
+          <div class="who"><b>${f.id ? 'Editar' : 'Novo'} ${f.dir === 'out' ? 'gasto' : 'receita'}</b>${X.inAdm() ? `<small class="adm-tag">${esc(X.ledgerName())}</small>` : ''}</div></header>
         <main class="content">
           ${f.id ? '' : `<div class="seg">${btns('fdir', [['out', 'Gasto'], ['in', 'Receita']], f.dir, '')}</div>`}
           <section class="amount ${f.dir}">
@@ -336,9 +337,10 @@
       const groups = [];
       list.forEach((r) => { const g = groups[groups.length - 1]; if (g && g.date === r.date) g.items.push(r); else groups.push({ date: r.date, items: [r] }); });
       return `<div class="page">
-        <header class="topbar"><div class="who"><small>Extrato de</small><b>${esc(S.cur.name)}</b></div></header>
+        <header class="topbar"><div class="who"><small>Extrato</small><b>${esc(X.ledgerName())}</b></div></header>
         <main class="content">
           ${X.desktopWarn()}
+          ${X.ledgerBar()}
           ${monthNav()}
           <section class="sum3">
             <div><small>Entrou</small><b class="pos">${brl(inn)}</b></div>
@@ -373,8 +375,9 @@
         <span class="chev" aria-hidden="true">›</span></button>`;
       const contas = wallets('conta'), cards = wallets('cartao');
       return `<div class="page">
-        <header class="topbar"><div class="who"><small>Carteira de</small><b>${esc(S.cur.name)}</b></div></header>
+        <header class="topbar"><div class="who"><small>Carteira</small><b>${esc(X.ledgerName())}</b></div></header>
         <main class="content">
+          ${X.ledgerBar()}
           <p class="small">São só nomes pra organizar seus lançamentos. O app <b>nunca</b> se conecta ao banco.</p>
           <section class="card"><h3>Contas</h3>
             ${contas.length ? contas.map(row).join('') : '<p class="empty">Nenhuma conta ainda. Ex.: Conta Nubank, Poupança Caixa.</p>'}
@@ -503,8 +506,9 @@
       const list = bills();
       return `<div class="page">
         <header class="topbar"><button class="icon-btn" data-action="tab" data-v="home">‹ Início</button>
-          <div class="who"><b>Contas do mês</b><small>${esc(S.cur.name)}</small></div></header>
+          <div class="who"><b>Contas do mês</b><small>${esc(X.ledgerName())}</small></div></header>
         <main class="content">
+          ${X.ledgerBar()}
           ${monthNav()}
           <section class="sum3 two-col">
             <div class="${falta ? 'neg-box' : ''}"><small>Falta pagar</small><b class="${falta ? 'neg' : ''}">${brl(falta)}</b></div>
@@ -576,10 +580,13 @@
           </section>
           ${paid ? `<p class="small center-t">Paga ${tx ? `em ${M.dayLabel(tx.date).toLowerCase()} com ${M.pay(tx.pay).nome}${tx.wallet && wname(tx.wallet) ? ' (' + esc(wname(tx.wallet)) + ')' : ''}` : ''}. O pagamento entrou no extrato como gasto.</p>
             <button class="btn wide" data-action="bunpay">Desmarcar pagamento</button>`
-          : `<section class="card">
-              <label class="lbl" for="bpval">Valor desta conta</label>
+          : `${b.kind === 'variavel' ? `<section class="card arrived ${i.estimated ? '' : 'ok'}"><h3>${i.estimated ? '📬 A conta chegou?' : '📬 Valor da conta deste mês'}</h3>
+              <p class="small">${i.estimated ? `Por enquanto é uma estimativa (média: ${brl(i.est)}). Digite o valor que veio na conta:` : 'Esse é o valor real que você informou. Pode corrigir se precisar.'}</p>
               <input class="field money" id="bpval" inputmode="decimal" value="${esc(S.bpVal ?? (i.cents / 100).toFixed(2).replace('.', ','))}">
-              ${b.kind === 'variavel' ? `<button class="btn wide" data-action="bpvalue">Chegou a conta: salvar valor sem pagar</button>` : ''}
+              <button class="btn wide" data-action="bpvalue">Salvar o valor (ainda não paguei)</button></section>` : ''}
+            <section class="card"><h3>Pagar</h3>
+              ${b.kind === 'variavel' ? '' : `<label class="lbl" for="bpval">Valor desta conta</label>
+              <input class="field money" id="bpval" inputmode="decimal" value="${esc(S.bpVal ?? (i.cents / 100).toFixed(2).replace('.', ','))}">`}
               <label class="lbl">Como vai pagar?</label>
               <div class="chips">${btns('bppay', M.PAYS.map((p) => [p.id, `${p.emo} ${p.nome}`]), P.pay)}</div>
               ${P.pay === 'credito' && cards.length ? `<label class="lbl">Qual cartão?</label><div class="chips">${btns('bpwallet', cards.map((w) => [w.id, esc(w.name)]), P.wallet)}</div>` : ''}

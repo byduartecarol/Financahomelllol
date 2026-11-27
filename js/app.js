@@ -1,7 +1,7 @@
 /* Finanças da Casa — Fase 1, Etapa 1.1
    Perfis estilo Netflix, senha opcional, recuperação, ajustes por perfil, mascotes animados e backup. */
 (function () {
-  const APP_VERSION = '0.5.0 (etapa 4)';
+  const APP_VERSION = '0.6.0 (etapa 5)';
   const $app = document.getElementById('app');
 
   const DEFAULT_PROFILES = [
@@ -18,7 +18,8 @@
     buf: '', msg: '', shake: false, fala: '', mood: 'normal',
     month: firstOfMonth(new Date()), fails: {}, lockUntil: {}, hiddenAt: 0,
     taps: [], angryUntil: 0, lastTouch: Date.now(),
-    recs: [], f: null, w: null, xfilter: 'todos'
+    recs: [], f: null, w: null, xfilter: 'todos',
+    ledgerId: null // de quem são os lançamentos na tela: o próprio perfil ou "adm-<id>" (Finanças da Mãe)
   };
 
   /* ---------- utilidades ---------- */
@@ -42,6 +43,26 @@
   const catFala = (t, situ, avoid) => Pet.fala(t, situ, S.cur ? sp(S.cur) : 'gato', avoid);
 
   async function save(p) { await DB.put('profiles', p); }
+
+  /* ---------- Finanças administradas (etapa 5) ----------
+     O perfil dono pode ter um "caderno" separado pra cada outro perfil (ex.: Finanças da Mãe).
+     Os registros ficam com profileId = "adm-<id do perfil>": NADA a ver com o perfil privado dela. */
+  const admId = (pid) => 'adm-' + pid;
+  const ledger = () => S.ledgerId || (S.cur && S.cur.id);
+  const inAdm = () => !!(S.cur && S.ledgerId && S.ledgerId !== S.cur.id);
+  const admTargets = (p) => (p && p.owner ? S.profiles.filter((o) => !o.owner && (p.admFor || []).includes(o.id)) : []);
+  const ledgerName = () => {
+    if (!inAdm()) return S.cur ? S.cur.name : '';
+    const o = S.profiles.find((x) => admId(x.id) === S.ledgerId);
+    return 'Finanças da ' + (o ? o.name : 'família');
+  };
+  function ledgerBar() {
+    const ts = admTargets(S.cur);
+    if (!ts.length) return '';
+    const opts = [[S.cur.id, '👤 Minhas']].concat(ts.map((o) => [admId(o.id), `💞 Da ${esc(o.name)}`]));
+    return `<div class="ledger-bar"><div class="seg">${opts.map(([v, l]) => `<button class="${ledger() === v ? 'on' : ''}" data-action="switchLedger" data-v="${v}" aria-pressed="${ledger() === v}">${l}</button>`).join('')}</div>
+      ${inAdm() ? `<p class="adm-note">Você está em <b>${esc(ledgerName())}</b>: renda e contas dela que você administra. O perfil privado dela continua só dela.</p>` : ''}</div>`;
+  }
 
   /* ---------- vida do mascote ---------- */
   // Toca uma ação (classe CSS act-*) no mascote grande da tela.
@@ -117,6 +138,7 @@
     r.dataset.font = pr.font;
     r.dataset.theme = pr.theme;
     r.dataset.big = pr.big ? '1' : '0';
+    r.dataset.ledger = p && inAdm() ? 'adm' : '';
     const meta = document.querySelector('meta[name=theme-color]');
     if (meta) meta.content = pr.theme === 'escuro' ? '#161a1f' : '#2f6f5e';
   }
@@ -165,7 +187,8 @@
   const L = window.Lanc({
     S, esc, go: (...a) => go(...a), render: () => render(), toast: (t) => toast(t), modal: (o) => modal(o), CANCEL,
     tone, catFala: (...a) => catFala(...a), act: (...a) => act(...a), pops: (...a) => pops(...a), celebrate: () => celebrate(),
-    nav: (a) => nav(a), save: (p) => save(p), desktopWarn: () => desktopWarn(), monthLabel
+    nav: (a) => nav(a), save: (p) => save(p), desktopWarn: () => desktopWarn(), monthLabel,
+    ledger: () => ledger(), inAdm: () => inAdm(), ledgerName: () => ledgerName(), ledgerBar: () => ledgerBar()
   });
 
   /* ---------- telas ---------- */
@@ -173,12 +196,13 @@
     return `<main class="screen center">
       <h1 class="title">Quem está usando?</h1>
       <div class="profile-grid">
-        ${S.profiles.map((p) => `<button class="profile-card" data-action="pick" data-id="${p.id}">
+        ${S.profiles.filter((p) => S.showHidden || !p.hidden).map((p) => `<button class="profile-card" data-action="pick" data-id="${p.id}">
           ${cat(p, 'feliz', 'avatar')}
           <span class="pname">${esc(p.name)}${p.pin ? ' <span class="lock" aria-label="com senha">🔒</span>' : ''}</span>
         </button>`).join('')}
       </div>
       <p class="hint">Tudo fica salvo só neste celular. Nada vai pra internet e nada se conecta ao banco.</p>
+      ${S.profiles.some((p) => p.hidden) && !S.showHidden ? '<button class="link" data-action="showHidden">Mostrar perfis escondidos</button>' : ''}
     </main>`;
   }
 
@@ -247,6 +271,7 @@
       </header>
       <main class="content">
         ${desktopWarn()}
+        ${ledgerBar()}
         <section class="hero">
           <p class="bubble">${esc(S.fala)}</p>
           <div class="pet-stage">
@@ -274,7 +299,9 @@
     const t = (v, ico, label) => `<button class="${active === v ? 'on' : ''}" data-action="tab" data-v="${v}" ${active === v ? 'aria-current="page"' : ''}><span aria-hidden="true">${ico}</span>${label}</button>`;
     return `<nav class="tabbar">
       ${t('home', '⌂', 'Início')}${t('extrato', '☰', 'Extrato')}
-      <button class="fab" data-action="novo" data-dir="out" aria-label="Lançar gasto"><span aria-hidden="true">＋</span>Lançar</button>
+      ${S.view === 'contas'
+        ? '<button class="fab" data-action="newBill" aria-label="Nova conta fixa"><span aria-hidden="true">＋</span>Conta</button>'
+        : '<button class="fab" data-action="novo" data-dir="out" aria-label="Lançar gasto"><span aria-hidden="true">＋</span>Lançar</button>'}
       ${t('carteira', '▭', 'Carteira')}${t('settings', '⚙', 'Ajustes')}
     </nav>`;
   }
@@ -287,7 +314,7 @@
   function vSettings() {
     const p = S.cur;
     const others = S.profiles.filter((x) => x.id !== p.id);
-    const canShare = !!(navigator.canShare && window.File && navigator.canShare({ files: [new File(['{}'], 'x.json', { type: 'application/json' })] }));
+    const canShare = !!(navigator.canShare && window.File && navigator.canShare({ files: [new File(['{}'], 'x.txt', { type: 'text/plain' })] }));
     return `<div class="page">
       <header class="topbar"><div class="who"><small>Ajustes de</small><b>${esc(p.name)}</b></div></header>
       <main class="content">
@@ -347,7 +374,19 @@
           <p class="small">Como dona do app, você pode resetar a senha de outro perfil. Você continua sem ver nada aqui, e a pessoa é avisada quando entrar.</p>
           ${others.map((o) => `<div class="row between"><span>${esc(o.name)} ${o.pin ? '🔒' : '<span class="tiny">(sem senha)</span>'}</span>
             ${o.pin ? `<button class="btn danger-outline" data-action="resetOther" data-id="${o.id}">Resetar senha</button>` : ''}</div>`).join('')}
+        </section>
+        <section class="card">
+          <h3>Finanças que você administra</h3>
+          <p class="small">Um caderno separado, dentro do seu perfil, pra renda e contas que você cuida e paga por outra pessoa. Ele <b>não</b> mostra nada do perfil privado dela.</p>
+          ${others.map((o) => `<div class="row between"><span>Finanças da ${esc(o.name)}</span>
+            <div class="seg mini">${[['1', 'Ligado'], ['0', 'Desligado']].map(([v, l]) => `<button class="${((p.admFor || []).includes(o.id) ? '1' : '0') === v ? 'on' : ''}" data-action="admToggle" data-id="${o.id}" data-v="${v}">${l}</button>`).join('')}</div></div>`).join('')}
         </section>` : ''}
+
+        <section class="card">
+          <h3>Neste celular</h3>
+          <p class="small">Se cada pessoa usa o próprio celular, dá pra esconder este perfil da tela "Quem está usando?" daqui. Os dados não são apagados.</p>
+          <div class="seg">${[['0', 'Mostrar este perfil'], ['1', 'Esconder este perfil']].map(([v, l]) => `<button class="${(p.hidden ? '1' : '0') === v ? 'on' : ''}" data-action="hideMe" data-v="${v}">${l}</button>`).join('')}</div>
+        </section>
 
         <section class="card">
           <button class="btn wide" data-action="toProfiles">Trocar de perfil</button>
@@ -373,6 +412,8 @@
     S.cur = p;
     S.month = firstOfMonth(new Date());
     S.xfilter = 'todos';
+    S.ledgerId = p.id;
+    S.showHidden = false;
     await L.reload();
     if (!p.seenWelcome) {
       S.mood = 'feliz'; S.fala = catFala(tone(p), 'boasVindas');
@@ -393,7 +434,7 @@
     }
   }
 
-  function toProfiles() { S.cur = null; S.recs = []; S.f = null; S.w = null; S.c = null; S.wd = null; S.cp = null; S.fk = null; S.b = null; S.bp = null; Money.setCustom([]); go('profiles'); }
+  function toProfiles() { S.cur = null; S.recs = []; S.f = null; S.w = null; S.c = null; S.wd = null; S.cp = null; S.fk = null; S.b = null; S.bp = null; S.ledgerId = null; Money.setCustom([]); go('profiles'); }
 
   /* ---------- senha ---------- */
   async function setPin(p, pin) {
@@ -460,10 +501,11 @@
   /* ---------- backup ---------- */
   async function buildBackup() {
     const p = S.cur;
-    const records = await DB.byProfile(p.id);
+    let records = await DB.byProfile(p.id);
+    for (const o of admTargets(p)) records = records.concat(await DB.byProfile(admId(o.id)));
     const payload = {
       app: 'financas-casa', schema: 1, exportedAt: new Date().toISOString(), appVersion: APP_VERSION,
-      profile: { id: p.id, name: p.name, pet: p.pet, acc: p.acc, prefs: p.prefs },
+      profile: { id: p.id, name: p.name, pet: p.pet, acc: p.acc, prefs: p.prefs, admFor: p.admFor || [] },
       records
     };
     const name = `financas-casa_${slug(p.name)}_${ymd()}.json`;
@@ -489,7 +531,10 @@
   }
 
   async function shareBackup() {
-    const file = await buildBackup();
+    // O Android só aceita compartilhar alguns tipos de arquivo: vai como .txt (o conteúdo é o mesmo)
+    const f0 = await buildBackup();
+    const file = new File([await f0.text()], f0.name.replace(/\.json$/, '.txt'), { type: 'text/plain' });
+    if (navigator.canShare && !navigator.canShare({ files: [file] })) { toast('Este celular não deixa enviar direto. Use "Salvar backup no celular" e mande o arquivo pelo WhatsApp/Drive.'); return; }
     try {
       await navigator.share({ files: [file], title: 'Backup Finanças da Casa' });
       await markBackup();
@@ -514,10 +559,20 @@
     if (!ok) return;
     // Backup de outro perfil: gera ids novos (pra não colidir) e mantém os vínculos gasto -> conta/cartão
     const idMap = {};
+    const REFS = ['wallet', 'bill', 'billId', 'txId', 'cat'];
     const recs = data.records.filter((r) => r && typeof r === 'object')
-      .map((r) => { const id = otherProfile || !r.id ? Sec.uid() : String(r.id); if (r.id) idMap[r.id] = id; return { ...r, profileId: p.id, id }; })
-      .map((r) => (r.wallet && idMap[r.wallet] ? { ...r, wallet: idMap[r.wallet] } : r));
-    await DB.replaceProfileRecords(p.id, recs);
+      .map((r) => {
+        const id = otherProfile || !r.id ? (String(r.id || '').startsWith('c-') ? 'c-' : '') + Sec.uid() : String(r.id);
+        if (r.id) idMap[r.id] = id;
+        // Caderno administrado (Finanças da Mãe) volta pro mesmo lugar; backup de outro perfil vai tudo pro perfil atual
+        const pid = !otherProfile && String(r.profileId || '').startsWith('adm-') ? r.profileId : p.id;
+        return { ...r, profileId: pid, id };
+      })
+      .map((r) => { const o = { ...r }; REFS.forEach((k) => { if (o[k] && idMap[o[k]]) o[k] = idMap[o[k]]; }); return o; });
+    const ledgers = new Set([p.id, ...(!otherProfile ? (data.profile?.admFor || []).map(admId) : [])]);
+    recs.forEach((r) => ledgers.add(r.profileId));
+    for (const lid of ledgers) await DB.replaceProfileRecords(lid, recs.filter((r) => r.profileId === lid));
+    if (!otherProfile && Array.isArray(data.profile?.admFor)) p.admFor = data.profile.admFor.filter((id) => S.profiles.some((o) => o.id === id));
     await L.reload();
     if (!otherProfile && data.profile) {
       if (data.profile.prefs) p.prefs = { ...p.prefs, ...data.profile.prefs };
@@ -574,6 +629,8 @@
       if (!r.value) return;
       if (r.text.trim().toUpperCase() !== 'APAGAR') return toast('Não apaguei: a palavra não confere.');
       await DB.replaceProfileRecords(p.id, []);
+      for (const o of S.profiles.filter((x) => x.id !== p.id)) await DB.replaceProfileRecords(admId(o.id), []);
+      p.admFor = [];
       p.pin = null; p.recovery = null; p.lastBackupAt = null; p.seenWelcome = false;
       await save(p);
       toast('Dados apagados. Perfil recomeçado.');
@@ -613,6 +670,32 @@
       if (S.taps.length >= 6) S.taps = [];
       render();
       act(Math.random() < 0.6 ? 'wave' : 'roll', 1500);
+    },
+    async admToggle(d) {
+      const p = S.cur; const on = d.v === '1';
+      p.admFor = (p.admFor || []).filter((x) => x !== d.id).concat(on ? [d.id] : []);
+      await save(p);
+      if (!on && S.ledgerId === admId(d.id)) { S.ledgerId = p.id; await L.reload(); }
+      render();
+      const o = prof(d.id);
+      toast(on ? `Pronto! No Início aparece "Minhas | Da ${o.name}".` : 'Desligado. Os dados continuam guardados se você ligar de novo.');
+    },
+    async hideMe(d) {
+      const p = S.cur;
+      if (d.v === '1' && S.profiles.filter((x) => !x.hidden && x.id !== p.id).length === 0) return toast('Pelo menos um perfil precisa aparecer.');
+      p.hidden = d.v === '1'; await save(p); render();
+      if (p.hidden) toast('Escondido. Na tela de perfis, toque em "Mostrar perfis escondidos" pra voltar.');
+    },
+    showHidden() { S.showHidden = true; render(); },
+    async switchLedger(d) {
+      if (d.v === ledger()) return;
+      S.ledgerId = d.v; S.f = null; S.w = null; S.wd = null; S.b = null; S.bp = null; S.cp = null; S.xpay = ''; S.xfilter = 'todos';
+      await L.reload();
+      const m = L.moodOnEnter(S.cur);
+      S.mood = m.mood; S.fala = m.fala;
+      if (inAdm() && !L.state().n) { S.mood = 'feliz'; S.fala = Pet.fala(tone(S.cur), 'admVazio', sp(S.cur)).replace('{quem}', ledgerName().replace('Finanças da ', '')); }
+      if (['home', 'extrato', 'carteira', 'contas'].includes(S.view)) render(); else go('home');
+      window.scrollTo(0, 0);
     },
     async petPick(d) { S.cur.pet = d.v; await save(S.cur); render(); act('jump', 1900); },
     month(d) { S.month = new Date(S.month.getFullYear(), S.month.getMonth() + Number(d.d), 1); render(); },

@@ -338,6 +338,7 @@
       contaVencendo: ['{conta} vence {quando}: {valor}. Só lembrando, com carinho e julgamento.', 'Ei! {conta} vence {quando}. {valor}. Não me faz passar vergonha.'],
       contaAtrasada: ['{conta} tá ATRASADA! {valor}. Juros e multa são meu pesadelo.', 'Alô?! {conta} venceu e ninguém pagou. Corre antes da multa.'],
       tudoPago: ['Todas as contas do mês pagas. Quem é você e o que fez com a minha dona?', 'Tudo pago! Vou tirar um cochilo merecido.'],
+      admVazio: ['Caderno da {quem} aberto. Aqui eu cuido do dinheiro dela com você. E julgo os gastos dela também, mas com carinho.'],
       // ---- reações ao salvar um gasto (escolhidas pela situação do mês) ----
       gastoEss: ['{cat}: {valor}. Essencial, vou deixar passar.', 'Anotado. Gasto de gente adulta, nada a declarar.', 'Esse era necessário mesmo. Raro, mas acontece.'],
       gastoNaoEss: ['{valor} em {cat}? Anotei. E julguei.', 'Não essencial, né? Eu vi. Eu sempre vejo.', 'Ah, os pequenos prazeres… e os pequenos rombos.'],
@@ -375,6 +376,7 @@
       contaVencendo: ['Lembrete: {conta} vence {quando} ({valor}).', 'Só pra não esquecer: {conta} vence {quando}, {valor}.'],
       contaAtrasada: ['{conta} passou do vencimento. Quando puder, dá uma olhadinha, tá?', 'Ficou pendente: {conta} ({valor}). Vamos resolver com calma?'],
       tudoPago: ['Todas as contas do mês estão pagas. Que tranquilidade!', 'Tudo em dia este mês. Pode descansar!'],
+      admVazio: ['Aqui é o cantinho das finanças da {quem} que você cuida. Vamos anotar juntinhas?'],
       gastoEss: ['Anotado: {cat}, {valor}. Coisa necessária, tudo certo.', 'Prontinho! Gasto essencial guardado aqui.', 'Anotei. Cuidar da casa é isso mesmo.'],
       gastoNaoEss: ['Anotei! Um agradinho de vez em quando faz bem.', 'Guardado. Só vamos ficar de olho nos não essenciais, tá?'],
       gastoAlto: ['Esse foi um gasto maior ({valor}). Fica registrado, sem problema.', 'Anotei os {valor}. Gastos grandes acontecem, o importante é saber.'],

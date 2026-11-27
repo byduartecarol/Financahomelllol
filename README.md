@@ -74,8 +74,21 @@ Sem servidor, sem login de banco, sem conexão com banco. Backup por arquivo JSO
 - Reação ao salvar gasto (`reaction`) olha o mês: essencial / não essencial / alto / apertado / virou negativo / já negativo /
   sem entrada. No debochado, gasto não essencial com o mês negativo deixa o mascote BRAVO.
 
-**Próxima etapa (Fase 1, etapa 5):** "Finanças da Mãe" dentro do perfil Eu: área separada pra renda e contas dela que eu
-administro e pago, sem mostrar nada do perfil privado dela.
+**Fase 1 — Etapa 5 (pronta) — FASE 1 CONCLUÍDA:**
+- Finanças administradas: o perfil dono liga em Ajustes um "caderno" por outro perfil (`profile.admFor`).
+  Os registros ficam com `profileId = "adm-<id>"` (`ledger()` em app.js), totalmente separados do perfil privado da pessoa.
+- Início/Extrato/Carteira/Contas mostram "Minhas | Da Mãe". No caderno administrado o tema fica lilás (`data-ledger="adm"`).
+- O backup do perfil dono inclui os cadernos administrados. A restauração devolve cada registro ao seu caderno e
+  remapeia ids e referências (carteira, conta, categoria) quando o backup vem de outro perfil.
+- Correções: backup compartilhado como .txt (o Android não compartilha .json); quadro "📬 A conta chegou?" nas contas variáveis;
+  botão do meio vira "＋ Conta" na tela de Contas; opção "Esconder este perfil neste celular".
+- IMPORTANTE: cada celular tem os próprios dados (sem servidor). Os celulares NÃO sincronizam.
+
+**Próximo (Fase 2 — organização):** limite por categoria com barra, gráficos (pizza por categoria, barras mês a mês,
+histórico das contas variáveis), assinaturas (mensal + ANUAL + fim de teste grátis), resumo do mês, histórico em dia × atrasado,
+relatório mensal pra imprimir (incluindo um separado das Finanças da Mãe).
+A decidir com a usuária: "espaço livre" da mãe e contas da casa compartilhadas.
+A fazer no fim: checklist final simples pra mãe testar.
 
 ## Estrutura
 ```

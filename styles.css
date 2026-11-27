@@ -358,3 +358,17 @@ select.field { appearance: auto; }
 .steps { padding-left: 1.2em; margin: 6px 0; }
 .steps li { margin: 6px 0; }
 .card.total .st { align-self: flex-start; margin-bottom: 4px; }
+
+/* ---------- etapa 5: Finanças da Mãe ---------- */
+.ledger-bar { display: flex; flex-direction: column; gap: 6px; }
+.ledger-bar .seg button { font-size: .92rem; }
+.adm-note { margin: 0; font-size: .85rem; background: #f3e6f7; color: #6a3d7c; border-radius: 12px; padding: 8px 12px; }
+:root[data-ledger="adm"] { --bg: #f7f0f8; --pri: #8a4fa3; --line: #e6d6ea; }
+:root[data-ledger="adm"][data-theme="escuro"] { --bg: #1d1722; --pri: #c590dc; --pri-ink: #1d1722; --line: #3a2d42; }
+:root[data-ledger="adm"] meta { }
+.adm-tag { color: #8a4fa3; font-weight: 600; }
+.seg.mini { flex: none; }
+.seg.mini button { min-height: 36px; padding: 0 12px; font-size: .85rem; }
+.hint-in { color: var(--accent); font-weight: 600; }
+.card.arrived { border: 2px dashed var(--accent); background: var(--warn-bg); }
+.card.arrived.ok { border-style: solid; border-color: var(--line); background: var(--card); }
