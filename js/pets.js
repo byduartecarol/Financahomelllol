@@ -333,6 +333,11 @@
       cutucar: ['Cutucar o mascote não paga conta, viu?', '{som}. Isso foi um "me deixa em paz".', 'Se cada cutucada valesse R$ 1, você já tinha reserva de emergência.', 'Tô de olho no seu dedo e no seu cartão.'],
       bravo: ['CHEGA! Vai cutucar a fatura do cartão!', 'Mais uma cutucada e eu escondo o seu Pix.', '{som}!! Respeita meu espaço pessoal!'],
       calmo: ['Tá, passou. Mas eu não esqueci.', 'Ok, te perdoo. Dessa vez.'],
+      gastoSalvo: ['Anotado. Não adianta me olhar assim.', 'Registrado. Seu dinheiro agradece a sinceridade.', 'Mais um pro caderninho.'],
+      gastoAlto: ['EITA! Tudo isso de uma vez?!', 'Opa, opa. Isso foi um gasto ou um assalto?', 'Respira. Eu respiro também. Que gastão!'],
+      receitaSalva: ['Dinheiro entrando! Finalmente uma notícia boa.', 'Opa, caiu! Não gasta tudo hoje, hein.'],
+      resumo: ['Esse mês já saiu {saiu}. Tô contando cada centavo.', 'Até agora, {saiu} de gastos. Sigo de olho.'],
+      apagado: ['Apagado. Vou fingir que não vi.'],
       senhaErrada: ['Errou. Tô de olho.', 'Não é essa não, hein.'],
       pinCriado: ['Senha criada. Agora nem eu entro sem pedir licença.'],
       backup: ['Backup feito. Responsável demais, tô até emocionado.']
@@ -344,6 +349,11 @@
       cutucar: ['Oi, oi! Estou aqui com você.', 'Que carinho bom! Obrigado.', 'Você está indo muito bem, sabia?', 'Respira fundo. A gente resolve uma coisa de cada vez.'],
       bravo: ['Hihi, assim faz cócegas!'],
       calmo: ['Estou aqui, pertinho.'],
+      gastoSalvo: ['Anotado! Obrigado por cuidar disso.', 'Prontinho, guardei aqui.', 'Muito bem! Anotar já é metade do caminho.'],
+      gastoAlto: ['Esse foi um gasto maior, né? Tudo bem, fica registrado.', 'Anotei! Gastos grandes acontecem. O importante é saber.'],
+      receitaSalva: ['Que bom! Dinheiro entrando!', 'Oba! Anotei a entrada.'],
+      resumo: ['Você já anotou {n} coisas este mês. Que capricho!', 'Este mês está tudo anotadinho. Muito bem!'],
+      apagado: ['Pronto, apaguei.'],
       senhaErrada: ['Hmm, não foi essa. Tenta de novo com calma.', 'Quase! Tenta mais uma vez.'],
       pinCriado: ['Pronto! Agora seu cantinho tem cadeado.'],
       backup: ['Cópia guardada! Seus dados estão protegidos.']

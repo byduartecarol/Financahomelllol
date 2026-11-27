@@ -1,7 +1,7 @@
 /* Finanças da Casa — Fase 1, Etapa 1.1
    Perfis estilo Netflix, senha opcional, recuperação, ajustes por perfil, mascotes animados e backup. */
 (function () {
-  const APP_VERSION = '0.2.3 (etapa 1.1)';
+  const APP_VERSION = '0.3.1 (etapa 2)';
   const $app = document.getElementById('app');
 
   const DEFAULT_PROFILES = [
@@ -17,7 +17,8 @@
     profiles: [], cur: null, view: 'profiles', p: {},
     buf: '', msg: '', shake: false, fala: '', mood: 'normal',
     month: firstOfMonth(new Date()), fails: {}, lockUntil: {}, hiddenAt: 0,
-    taps: [], angryUntil: 0, lastTouch: Date.now()
+    taps: [], angryUntil: 0, lastTouch: Date.now(),
+    recs: [], f: null, w: null, xfilter: 'todos'
   };
 
   /* ---------- utilidades ---------- */
@@ -128,6 +129,7 @@
 
   /* ---------- avisos e janelas ---------- */
   function toast(text) {
+    document.querySelectorAll('.toast').forEach((o) => o.remove());
     const t = document.createElement('div');
     t.className = 'toast'; t.textContent = text;
     document.body.append(t);
@@ -158,6 +160,13 @@
     });
   }
   const CANCEL = { label: 'Cancelar', value: false };
+
+  /* ---------- módulo de lançamentos (etapa 2) ---------- */
+  const L = window.Lanc({
+    S, esc, go: (...a) => go(...a), render: () => render(), toast: (t) => toast(t), modal: (o) => modal(o), CANCEL,
+    tone, catFala: (...a) => catFala(...a), act: (...a) => act(...a), pops: (...a) => pops(...a), celebrate: () => celebrate(),
+    nav: (a) => nav(a), save: (p) => save(p), desktopWarn: () => desktopWarn(), monthLabel
+  });
 
   /* ---------- telas ---------- */
   function vProfiles() {
@@ -250,14 +259,7 @@
           <b>${monthLabel(S.month)}</b>
           <button class="round" data-action="month" data-d="1" aria-label="Próximo mês">›</button>
         </section>
-        <section class="card total">
-          <span>Falta pagar neste mês</span>
-          <strong>${brl(0)}</strong>
-        </section>
-        <section class="card">
-          <h3>Contas do mês</h3>
-          <p class="empty">Nenhuma conta ainda. O cadastro de contas e gastos chega na próxima etapa.</p>
-        </section>
+        ${L.home()}
         ${old > 30 ? `<section class="card warn">
           <h3>${p.lastBackupAt ? 'Faz tempo que você não faz backup' : 'Faça seu primeiro backup'}</h3>
           <p class="small">Se o celular quebrar ou o app for apagado, o backup é o que salva seus dados.</p>
@@ -269,9 +271,11 @@
   }
 
   function nav(active) {
+    const t = (v, ico, label) => `<button class="${active === v ? 'on' : ''}" data-action="tab" data-v="${v}" ${active === v ? 'aria-current="page"' : ''}><span aria-hidden="true">${ico}</span>${label}</button>`;
     return `<nav class="tabbar">
-      <button class="${active === 'home' ? 'on' : ''}" data-action="tab" data-v="home"><span aria-hidden="true">⌂</span>Início</button>
-      <button class="${active === 'settings' ? 'on' : ''}" data-action="tab" data-v="settings"><span aria-hidden="true">⚙</span>Ajustes</button>
+      ${t('home', '⌂', 'Início')}${t('extrato', '☰', 'Extrato')}
+      <button class="fab" data-action="novo" data-dir="out" aria-label="Lançar gasto"><span aria-hidden="true">＋</span>Lançar</button>
+      ${t('carteira', '▭', 'Carteira')}${t('settings', '⚙', 'Ajustes')}
     </nav>`;
   }
 
@@ -356,7 +360,9 @@
     if (S.view === 'profiles' || S.view === 'pin' || S.view === 'recover' || S.view === 'code') {
       applyPrefs(S.view === 'profiles' ? null : prof(S.p.id));
     } else applyPrefs(S.cur);
-    const views = { profiles: vProfiles, pin: vPin, code: vCode, recover: vRecover, home: vHome, settings: vSettings };
+    const views = { profiles: vProfiles, pin: vPin, code: vCode, recover: vRecover, home: vHome, settings: vSettings, ...L.views };
+    if (!views[S.view] || (L.views[S.view] && !S.cur)) S.view = S.cur ? 'home' : 'profiles';
+    if ((S.view === 'lancar' && !S.f) || (S.view === 'wallet' && !S.w)) S.view = 'home';
     $app.innerHTML = views[S.view]();
   }
 
@@ -364,13 +370,16 @@
   async function enter(p) {
     S.cur = p;
     S.month = firstOfMonth(new Date());
+    S.xfilter = 'todos';
+    await L.reload();
     if (!p.seenWelcome) {
       S.mood = 'feliz'; S.fala = catFala(tone(p), 'boasVindas');
       p.seenWelcome = true; await save(p);
       setTimeout(celebrate, 300);
     } else {
-      // Nesta etapa ainda não há lançamentos, então o gato dorme.
-      S.mood = 'dormindo'; S.fala = catFala(tone(p), 'vazio');
+      // Sem lançamentos no mês: dorme. Com lançamentos: comenta o mês.
+      const m = L.moodOnEnter(p);
+      S.mood = m.mood; S.fala = m.fala;
     }
     go('home');
     if (p.resetNotice) {
@@ -382,7 +391,7 @@
     }
   }
 
-  function toProfiles() { S.cur = null; go('profiles'); }
+  function toProfiles() { S.cur = null; S.recs = []; S.f = null; S.w = null; go('profiles'); }
 
   /* ---------- senha ---------- */
   async function setPin(p, pin) {
@@ -501,9 +510,13 @@
       buttons: [CANCEL, { label: 'Restaurar', value: true, kind: 'danger' }]
     });
     if (!ok) return;
+    // Backup de outro perfil: gera ids novos (pra não colidir) e mantém os vínculos gasto -> conta/cartão
+    const idMap = {};
     const recs = data.records.filter((r) => r && typeof r === 'object')
-      .map((r) => ({ ...r, profileId: p.id, id: otherProfile || !r.id ? Sec.uid() : String(r.id) }));
+      .map((r) => { const id = otherProfile || !r.id ? Sec.uid() : String(r.id); if (r.id) idMap[r.id] = id; return { ...r, profileId: p.id, id }; })
+      .map((r) => (r.wallet && idMap[r.wallet] ? { ...r, wallet: idMap[r.wallet] } : r));
     await DB.replaceProfileRecords(p.id, recs);
+    await L.reload();
     if (!otherProfile && data.profile) {
       if (data.profile.prefs) p.prefs = { ...p.prefs, ...data.profile.prefs };
       if (data.profile.pet && Pet.list[data.profile.pet]) p.pet = data.profile.pet;
@@ -643,7 +656,10 @@
     const fn = A[el.dataset.action];
     if (fn) Promise.resolve(fn(el.dataset, el)).catch(err);
   });
+  Object.assign(A, L.actions);
+  $app.addEventListener('input', (e) => L.onInput(e));
   $app.addEventListener('change', (e) => {
+    L.onChange(e);
     const el = e.target;
     if (el.id === 'anotei') A.anotei(el.dataset, el);
     if (el.id === 'importFile' && el.files[0]) importBackup(el.files[0]).catch(err).finally(() => { el.value = ''; });

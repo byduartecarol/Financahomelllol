@@ -29,9 +29,20 @@ Sem servidor, sem login de banco, sem conexão com banco. Backup por arquivo JSO
   O backup não leva a senha.
 - PWA: manifest, ícones, service worker (funciona offline).
 
-**Próxima etapa sugerida (Fase 1, etapa 2):** cadastro manual de contas e cartões (etiquetas)
-e lançamento de gastos e receitas com teclado rápido (+10, +20, +50, +100) e as 3 etiquetas.
-Os registros vão no store `records` com `profileId` e `type`.
+**Fase 1 — Etapa 2 (pronta):**
+- Carteira: cadastro manual de contas e cartões (só etiquetas; cartão guarda dia de fechamento e vencimento).
+- Lançar gasto/receita (`js/lanc.js`): teclado em centavos + botões +10/+20/+50/+100, categoria,
+  forma de pagamento (Pix, débito, crédito, dinheiro), conta/cartão, parcelas (crédito), essencial ou não
+  (sugerido pela categoria), descrição e data (hoje/ontem/outra). Lembra a última forma de pagamento.
+- Extrato do mês: entrou/saiu/sobrou, barra essencial × não essencial, filtro, editar e apagar.
+- Tela inicial: "Saiu no mês", botões de lançar, últimos lançamentos.
+- Mascote reage: dorme sem lançamentos no mês, fica feliz ao anotar, surpreso com gasto alto
+  (R$ 300+ ou 25%+ do que entrou no mês, `Money.isBig`) e comemora receita.
+- Registros no store `records`: `type:'wallet'` e `type:'tx'` (valores em centavos, data local AAAA-MM-DD).
+  Compra parcelada fica guardada inteira, com `parcelas`. A divisão nas faturas é a etapa 3.
+
+**Próxima etapa (Fase 1, etapa 3):** cartão de crédito com fatura: compra entra na fatura certa pelo dia
+de fechamento, parcelas espalhadas nas faturas futuras, fatura com total, essencial e não essencial.
 
 ## Estrutura
 ```
@@ -42,6 +53,8 @@ sw.js                 offline. AUMENTE a VERSION a cada publicação
 js/db.js              IndexedDB (profiles, records)
 js/security.js        hash de PIN e código de recuperação
 js/pets.js            desenho dos mascotes e falas por tom
+js/money.js           categorias, formas de pagamento, datas, centavos
+js/lanc.js            carteira, lançar, extrato (etapa 2)
 js/app.js             telas e ações
 icons/                ícones PNG
 ```
