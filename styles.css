@@ -474,24 +474,3 @@ select.field { appearance: auto; }
   .report section { break-inside: avoid-page; }
   .report tr { break-inside: avoid; }
 }
-
-/* ===== 0.9.2: Mais, filtro por categoria, itens do plano, tipos de dívida ===== */
-.search { width: 100%; margin-bottom: 12px; font-size: 1.05rem; }
-.feat { width: 100%; text-align: left; background: none; border: 0; color: inherit; font: inherit; cursor: pointer; }
-.feat[hidden], .faq[hidden] { display: none; }
-.faq { border-top: 1px solid var(--line); padding: 10px 0; }
-.faq summary { font-weight: 600; cursor: pointer; }
-.faq p { margin: 8px 0 0; color: var(--muted); }
-button.lg-row { width: 100%; background: none; border: 0; border-top: 1px solid var(--line); color: inherit; font: inherit; text-align: left; cursor: pointer; }
-button.lg-row:first-child { border-top: 0; }
-button.lg-row:disabled { cursor: default; opacity: 1; }
-button.bud-row { display: block; width: 100%; background: none; border: 0; border-top: 1px solid var(--line); color: inherit; font: inherit; text-align: left; cursor: pointer; }
-.bud-items { display: block; font-size: .82rem; color: var(--muted); margin-top: 3px; }
-.cat-filter { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; background: var(--soft, rgba(0,0,0,.04)); border-radius: 12px; padding: 8px 10px; margin-bottom: 8px; }
-.pe-group { border-top: 1px solid var(--line); padding: 6px 0; }
-.pe-group .pe-row { border-top: 0; }
-.pe-item { display: grid; grid-template-columns: 1fr 110px 36px; gap: 6px; margin: 4px 0; }
-.pe-sum { font-variant-numeric: tabular-nums; }
-.tiny-link { display: block; font-size: .8rem; padding: 2px 0; }
-.seg.col3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
-.seg.col3 .chip { white-space: normal; line-height: 1.2; padding: 8px 4px; }

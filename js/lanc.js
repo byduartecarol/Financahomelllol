@@ -197,27 +197,6 @@
                dueDay, pay, wallet, quitada, negs:[{date,text}], isNew, createdAt }
        Pagar a parcela cria um gasto (tx.debtId + tx.debtN) e soma 1 em "pagas". */
     const debts = (all) => S.recs.filter((r) => r.type === 'debt' && (all || !r.quitada)).sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
-    const DEBT_KINDS = [['emprestimo', '🏦', 'Empréstimos e financiamentos'], ['parcelado', '🧾', 'Contas parceladas (carnê, crediário…)'], ['acordo', '🤝', 'Acordos e renegociações']];
-    // Parcelados no CARTÃO que ainda têm parcelas pela frente (só pra consulta: já estão nas faturas)
-    function cardInstallments() {
-      const out = [];
-      txs().filter((r) => r.pay === 'credito' && r.dir === 'out' && (r.parcelas || 1) > 1).forEach((r) => {
-        const w = S.recs.find((x) => x.id === r.wallet && x.kind === 'cartao');
-        const k0 = w ? M.faturaOf(r.date, w.closeDay, w.dueDay) : M.mkey(M.parse(r.date));
-        const nowK = w ? M.faturaOf(today(), w.closeDay, w.dueDay) : M.mkey(new Date());
-        const idx = (Number(nowK.slice(0, 4)) - Number(k0.slice(0, 4))) * 12 + Number(nowK.slice(5)) - Number(k0.slice(5));
-        const left = r.parcelas - Math.max(0, idx);
-        if (left > 0) out.push({ name: r.desc || M.cat(r.cat).nome, card: w ? w.name : 'cartão', parcela: Math.round(r.cents / r.parcelas), left, total: r.parcelas });
-      });
-      S.recs.filter((r) => r.type === 'cardinst').forEach((r) => {
-        const w = S.recs.find((x) => x.id === r.wallet);
-        const nowK = w ? M.faturaOf(today(), w.closeDay, w.dueDay) : M.mkey(new Date());
-        const idx = (Number(nowK.slice(0, 4)) - Number(r.firstKey.slice(0, 4))) * 12 + Number(nowK.slice(5)) - Number(r.firstKey.slice(5));
-        const left = r.remaining - Math.max(0, idx);
-        if (left > 0) out.push({ name: r.desc, card: w ? w.name : 'cartão', parcela: r.parcela, left, total: r.total });
-      });
-      return out;
-    }
     const restantes = (d) => Math.max(0, d.total - d.pagas);
     const saldoDe = (d) => d.saldo && d.saldo > 0 ? d.saldo : d.parcela * restantes(d);
     const debtPaidIn = (d, key) => txs().find((r) => r.debtId === d.id && String(r.date).slice(0, 7) === key);
@@ -252,12 +231,11 @@
     function budget(key) {
       const pr = planRec(key);
       const pOut = (pr && pr.out) || {}, pIn = (pr && pr.in) || {};
-      const pItems = (pr && pr.items) || {};
       const tx = txs().filter((r) => String(r.date).slice(0, 7) === key);
       const realBy = (dir) => { const m = {}; tx.filter((r) => r.dir === dir).forEach((r) => { m[r.cat] = (m[r.cat] || 0) + r.cents; }); return m; };
       const rOut = realBy('out'), rIn = realBy('in');
       const rows = (pl, re) => [...new Set([...Object.keys(pl).filter((k) => pl[k] > 0), ...Object.keys(re)])]
-        .map((cat) => ({ cat, c: M.cat(cat), plan: pl[cat] || 0, real: re[cat] || 0, items: pItems[cat] || [] }))
+        .map((cat) => ({ cat, c: M.cat(cat), plan: pl[cat] || 0, real: re[cat] || 0 }))
         .sort((a, b) => (b.plan || b.real) - (a.plan || a.real));
       const tot = (o) => Object.values(o).reduce((a, v) => a + (v || 0), 0);
       return { has: !!pr, inherited: pr && pr.key !== key ? pr.key : null, out: rows(pOut, rOut), inn: rows(pIn, rIn),
@@ -269,12 +247,10 @@
       const pct = r.plan ? Math.min(100, Math.round(r.real / r.plan * 100)) : 100;
       const diff = r.plan - r.real;
       const note = !r.plan ? 'sem planejamento' : income ? (diff > 0 ? `faltam entrar ${brl(diff)}` : 'recebido ✓') : diff >= 0 ? `sobram ${brl(diff)}` : `passou ${brl(-diff)}`;
-      const items = (r.items || []).filter((it) => it.cents);
-      return `<button class="bud-row ${cls}" data-action="xcat" data-v="${esc(r.cat)}">
+      return `<div class="bud-row ${cls}">
         <div class="bud-top"><span>${esc(r.c.emo)} ${esc(r.c.nome)}</span><span><b>${brl(r.real)}</b>${r.plan ? ` <small>de ${brl(r.plan)}</small>` : ''}</span></div>
         <div class="bud-bar"><div style="width:${pct}%"></div></div>
-        <small class="bud-note">${note} ›</small>
-        ${items.length ? `<span class="bud-items">${items.map((it) => `${esc(it.name)} ${brl(it.cents)}`).join(' · ')}</span>` : ''}</button>`;
+        <small class="bud-note">${note}</small></div>`;
     }
     function planCard() {
       const key = M.mkey(S.month);
@@ -508,8 +484,7 @@
       const ess = M.sum(outL.filter((r) => r.ess !== false));
       const filt = S.xfilter || 'todos';
       const xpay = S.xpay || '';
-      const xcat = S.xcat || '';
-      const list = all.filter((r) => (filt === 'todos' || (filt === 'out' ? r.dir === 'out' : r.dir === 'in')) && (!xpay || r.pay === xpay) && (!xcat || r.cat === xcat)).sort(sortTx);
+      const list = all.filter((r) => (filt === 'todos' || (filt === 'out' ? r.dir === 'out' : r.dir === 'in')) && (!xpay || r.pay === xpay)).sort(sortTx);
       const byPay = M.PAYS.map((p) => ({ ...p, total: M.sum(outL.filter((r) => r.pay === p.id)) }));
       const groups = [];
       list.forEach((r) => { const g = groups[groups.length - 1]; if (g && g.date === r.date) g.items.push(r); else groups.push({ date: r.date, items: [r] }); });
@@ -537,7 +512,6 @@
           </section>` : ''}
           <div class="chips">${btns('xfilter', [['todos', 'Tudo'], ['out', 'Gastos'], ['in', 'Receitas']], filt)}</div>
           ${xpay ? `<p class="small">Mostrando só gastos em <b>${M.pay(xpay).nome}</b>: ${brl(M.sum(list))}</p>` : ''}
-          ${xcat ? `<div class="cat-filter"><span>${esc(M.cat(xcat).emo)} <b>${esc(M.cat(xcat).nome)}</b>: ${list.length} lançamento(s) · ${brl(M.sum(list))}</span><button class="chip sm" data-action="xcat" data-v="">✕ Todas as categorias</button></div>` : ''}
           ${groups.length ? groups.map((g) => `<section class="day"><h4>${M.dayLabel(g.date)}</h4><div class="tx-list">${g.items.map(txRow).join('')}</div></section>`).join('')
             : `<section class="card"><p class="empty">Nenhum lançamento ${filt === 'in' ? 'de receita ' : filt === 'out' ? 'de gasto ' : ''}neste mês.</p></section>`}
         </main>${X.nav('extrato')}</div>`;
@@ -717,19 +691,9 @@
       const val = (c) => c ? (c / 100).toFixed(2).replace('.', ',') : '';
       const row = (dir, c) => {
         const cur = (dir === 'out' ? pe.out : pe.in)[c.id] || 0;
-        const items = pe.items[c.id];
-        if (items) {
-          const sum = items.reduce((a, it) => a + (it.cents || 0), 0);
-          return `<div class="pe-group"><div class="pe-row"><label><span>${esc(c.emo)} ${esc(c.nome)}</span><small>detalhado em ${items.length} item(ns)</small></label><b class="pe-sum">${brl(sum)}</b></div>
-            ${items.map((it, i) => `<div class="pe-item"><input class="field" data-it="${esc(c.id)}" data-i="${i}" data-k="name" maxlength="30" value="${esc(it.name)}" placeholder="Ex.: Aluguel">
-              <input class="field money sm" data-it="${esc(c.id)}" data-i="${i}" data-k="cents" inputmode="decimal" placeholder="0,00" value="${val(it.cents)}">
-              <button class="icon-btn x" data-action="peItemDel" data-cat="${esc(c.id)}" data-i="${i}" aria-label="Tirar item">✕</button></div>`).join('')}
-            <div class="row"><button class="link" data-action="peItemAdd" data-cat="${esc(c.id)}">＋ item</button><button class="link" data-action="peUndetail" data-cat="${esc(c.id)}" data-dir="${dir}">usar valor único</button></div></div>`;
-        }
         const hint = [prevOf(dir === 'out' ? prev.out : prev.inn, c.id) ? `mês passado ${brl(prevOf(dir === 'out' ? prev.out : prev.inn, c.id))}` : '',
           dir === 'out' && billsBy[c.id] ? `contas fixas ${brl(billsBy[c.id])}` : ''].filter(Boolean).join(' · ');
-        return `<div class="pe-row"><label for="pe-${dir}-${esc(c.id)}"><span>${esc(c.emo)} ${esc(c.nome)}</span>${hint ? `<small>${hint}</small>` : ''}
-            ${dir === 'out' ? `<button class="link tiny-link" data-action="peDetail" data-cat="${esc(c.id)}">detalhar em itens</button>` : ''}</label>
+        return `<div class="pe-row"><label for="pe-${dir}-${esc(c.id)}"><span>${esc(c.emo)} ${esc(c.nome)}</span>${hint ? `<small>${hint}</small>` : ''}</label>
           <input class="field money sm" id="pe-${dir}-${esc(c.id)}" data-dir="${dir}" data-cat="${esc(c.id)}" inputmode="decimal" placeholder="0,00" value="${val(cur)}"></div>`;
       };
       return `<div class="page form-page">
@@ -746,12 +710,7 @@
     }
     function readPE() {
       if (!S.pe) return;
-      document.querySelectorAll('.pe-item input').forEach((i) => {
-        const it = (S.pe.items[i.dataset.it] || [])[Number(i.dataset.i)]; if (!it) return;
-        if (i.dataset.k === 'name') it.name = i.value; else it.cents = M.parseBRL(i.value);
-      });
-      Object.entries(S.pe.items).forEach(([cat, items]) => { const sum = items.reduce((a, it) => a + (it.cents || 0), 0); if (sum) S.pe.out[cat] = sum; else delete S.pe.out[cat]; });
-      document.querySelectorAll('.pe-row input[data-cat]').forEach((i) => {
+      document.querySelectorAll('.pe-row input').forEach((i) => {
         const v = M.parseBRL(i.value);
         const o = i.dataset.dir === 'out' ? S.pe.out : S.pe.in;
         if (v) o[i.dataset.cat] = v; else delete o[i.dataset.cat];
@@ -823,8 +782,7 @@
           </section>
           <section class="card"><h3>Gastos por categoria</h3>
             ${slices.length ? `<div class="donut-wrap">${Charts.donut(slices, { big: Charts.brlShort(m.out), small: 'em gastos' })}</div>
-              <div class="legend-list">${slices.map((x) => `<button class="lg-row" ${x.cat !== '_outros' ? `data-action="xcat" data-v="${esc(x.cat)}"` : 'disabled'}><i style="background:${x.color}"></i><span>${esc(x.emo)} ${esc(x.label)}</span><b>${brl(x.value)}</b><small>${Math.round(x.value / m.out * 100)}% ${x.cat !== '_outros' ? '›' : ''}</small></button>`).join('')}</div>
-              <p class="tiny">Toque numa categoria pra ver os gastos dela.</p>`
+              <div class="legend-list">${slices.map((x) => `<div class="lg-row"><i style="background:${x.color}"></i><span>${esc(x.emo)} ${esc(x.label)}</span><b>${brl(x.value)}</b><small>${Math.round(x.value / m.out * 100)}%</small></div>`).join('')}</div>`
               : '<p class="empty">Nenhum gasto neste mês.</p>'}
           </section>
           <section class="card"><h3>Entradas × gastos, mês a mês</h3>
@@ -851,49 +809,6 @@
         </main>${X.nav('extrato')}</div>`;
     }
 
-    /* ---------- menu "Mais": todas as funções + busca + ajuda ---------- */
-    const FEATURES = [
-      ['goContas', '🧾', 'Contas do mês', 'Checklist de aluguel, luz, água, faturas; marcar como paga', 'contas fixas checklist vencimento luz agua aluguel falta pagar'],
-      ['goPlan', '📊', 'Orçamento', 'Esperado × real por categoria, entradas e gastos', 'planejar planejamento limite meta categoria esperado'],
-      ['goResumo', '📈', 'Resumo e gráficos', 'Rosca por categoria, mês a mês, contas em dia', 'grafico pizza rosca resumo historico comparacao'],
-      ['goRelatorio', '🖨️', 'Relatório do mês', 'Imprimir, salvar PDF ou mandar resumo no WhatsApp', 'relatorio pdf imprimir whatsapp compartilhar'],
-      ['goDividas', '💸', 'Dívidas', 'Empréstimos, contas parceladas, acordos e plano pra quitar', 'divida emprestimo parcelado carne crediario acordo quitar'],
-      ['goSubs', '📺', 'Assinaturas', 'Netflix, Spotify… total por mês e por ano, teste grátis', 'assinatura streaming netflix spotify teste gratis'],
-      ['tab:carteira', '💳', 'Carteira', 'Contas, cartões e faturas; gastos por Pix, débito…', 'cartao fatura conta banco pix debito credito dinheiro'],
-      ['tab:extrato', '☰', 'Extrato', 'Todos os lançamentos do mês, filtros', 'extrato lancamentos gastos receitas lista'],
-      ['tab:settings', '⚙️', 'Ajustes', 'Mascote, letra, tema, senha, backup, perfis, cadernos', 'ajustes configuracoes senha backup mascote tema letra perfil caderno']
-    ];
-    const FAQ = [
-      ['Como lanço um gasto?', 'Toque no ＋ do meio da barra de baixo, digite o valor, escolha a categoria e a forma de pagamento e toque em Salvar.'],
-      ['Onde fica o relatório do mês?', 'Aqui no Mais → Relatório do mês, ou no Início/Resumo. Dá pra imprimir, salvar PDF ou mandar resumo.'],
-      ['Compra parcelada no cartão vai em Dívidas?', 'Não. Lance como gasto no Crédito com as parcelas: ela já entra nas faturas. Em Dívidas vão empréstimos, carnês/crediário e acordos.'],
-      ['Dívida eu lanço como gasto?', 'Não. Cadastre em Dívidas. Cada parcela que você marcar como paga vira um gasto sozinha.'],
-      ['Como faço backup?', 'Mais → Ajustes → Backup → Salvar backup no celular (ou Enviar pro Drive/WhatsApp). Faça pelo menos uma vez por mês.'],
-      ['Os celulares sincronizam?', 'Não. Cada celular guarda os próprios dados, sem internet. Pra levar pra outro celular, use backup e restaurar.'],
-      ['Como recebo lembrete das contas?', 'Contas do mês → Mandar pro Google Agenda. Ele avisa 3 dias antes e no dia, mesmo com o app fechado.'],
-      ['Esqueci a senha. E agora?', 'Na tela da senha, toque em "Esqueci a senha" e use o código de recuperação que apareceu quando a senha foi criada.']
-    ];
-    function vMais() {
-      return `<div class="page">
-        <header class="topbar"><div class="who"><small>Tudo do app</small><b>Mais</b></div></header>
-        <main class="content">
-          <input class="field search" id="busca" type="search" placeholder="🔎 Buscar: relatório, dívida, backup…" autocomplete="off" aria-label="Buscar função ou ajuda">
-          <section class="card" id="feat-list">${FEATURES.map(([act, emo, t, d, kw]) => {
-            const [a, v] = act.split(':');
-            return `<button class="w-row feat" data-action="${a}" ${v ? `data-v="${v}"` : ''} data-kw="${esc((t + ' ' + d + ' ' + kw).toLowerCase())}"><span class="w-ico">${emo}</span><span class="tx-mid"><b>${t}</b><small>${d}</small></span><span class="chev">›</span></button>`;
-          }).join('')}<p class="empty none-found" hidden>Nada encontrado nas funções. Veja a ajuda abaixo.</p></section>
-          <section class="card" id="faq"><h3>Ajuda rápida</h3>${FAQ.map(([q, a]) => `<details class="faq" data-kw="${esc((q + ' ' + a).toLowerCase())}"><summary>${q}</summary><p>${a}</p></details>`).join('')}</section>
-        </main>${X.nav('mais')}</div>`;
-    }
-    function filterMais(q) {
-      const n = q.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
-      const norm = (t) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-      let shown = 0;
-      document.querySelectorAll('.feat').forEach((el) => { const ok = !n || norm(el.dataset.kw).includes(n); el.hidden = !ok; if (ok) shown++; });
-      document.querySelectorAll('.faq').forEach((el) => { const ok = !n || norm(el.dataset.kw).includes(n); el.hidden = !ok; if (ok && n) el.open = true; });
-      const nf = document.querySelector('.none-found'); if (nf) nf.hidden = shown > 0;
-    }
-
     /* ---------- telas de dívidas ---------- */
     function vDividas() {
       const ds = debts(), dsAll = debts(true);
@@ -916,27 +831,17 @@
             <span class="sub">${ds.length ? `${brl(mensal)} por mês em parcelas · ${ds.length} dívida(s)` : quit.length ? `${quit.length} dívida(s) quitada(s) 🎉` : 'Que maravilha!'}</span>
             ${dias !== null ? `<span class="bal">🏅 <b>${dias}</b> dia${dias === 1 ? '' : 's'} sem dívida nova</span>` : ''}
           </section>
-          ${(() => {
-            const row = (d) => {
+          <section class="card"><h3>Minhas dívidas</h3>
+            ${ds.length ? ds.map((d) => {
               const pct = Math.round(d.pagas / d.total * 100);
               const paid = debtPaidIn(d, key);
               return `<button class="debt-row" data-action="openDebt" data-id="${esc(d.id)}">
                 <div class="bud-top"><span>${esc(d.emo || '💸')} <b>${esc(d.name)}</b>${d.creditor ? ` <small>· ${esc(d.creditor)}</small>` : ''}</span><span><b>${brl(saldoDe(d))}</b></span></div>
                 <div class="bud-row ${pct >= 80 ? 'ok' : ''}"><div class="bud-bar"><div style="width:${pct}%"></div></div></div>
                 <small class="bud-note">${d.pagas} de ${d.total} parcelas pagas (${pct}%) · parcela ${brl(d.parcela)}${d.juros ? ` · juros ${String(d.juros).replace('.', ',')}% a.m.` : ''} · ${paid ? 'paga este mês ✓' : `vence dia ${d.dueDay}`}</small></button>`;
-            };
-            const groups = DEBT_KINDS.map(([k, emo, title]) => ({ k, emo, title, list: ds.filter((d) => (d.kind || 'emprestimo') === k) })).filter((g) => g.list.length);
-            return (groups.length ? groups.map((g) => `<section class="card"><h3>${g.emo} ${g.title}</h3>${g.list.map(row).join('')}
-                <small class="bud-note">Total: ${brl(g.list.reduce((a, d) => a + saldoDe(d), 0))} · ${brl(g.list.reduce((a, d) => a + d.parcela, 0))}/mês</small></section>`).join('')
-              : '<section class="card"><h3>Minhas dívidas</h3><p class="empty">Aqui entram empréstimos, contas parceladas fora do cartão (carnê, crediário) e acordos. Compra parcelada no cartão não: ela já está na fatura.</p></section>')
-              + '<button class="btn wide" data-action="newDebt">＋ Nova dívida</button>';
-          })()}
-          ${(() => {
-            const ci = cardInstallments(); if (!ci.length) return '';
-            return `<section class="card soft"><h3>💳 Parcelados no cartão <small class="tiny">(só pra consulta)</small></h3>
-              ${ci.map((c) => `<div class="hist-row"><span>${esc(c.name)} <small>· ${esc(c.card)} · faltam ${c.left} de ${c.total}</small></span><b>${brl(c.parcela)}/mês</b></div>`).join('')}
-              <p class="tiny">Ainda falta ${brl(ci.reduce((a, c) => a + c.parcela * c.left, 0))} no total. Isso já está nas faturas, por isso não soma no "Você ainda deve".</p></section>`;
-          })()}
+            }).join('') : '<p class="empty">Cartão parcelado não precisa vir aqui (ele já está na fatura). Aqui entram empréstimos, acordos, financiamentos, carnês…</p>'}
+            <button class="btn wide" data-action="newDebt">＋ Nova dívida</button>
+          </section>
           ${ds.length > 0 ? `<section class="card"><h3>Plano pra quitar</h3>
             <div class="seg">${btns('debtMode', [['menor', 'Menor primeiro'], ['juros', 'Maior juros primeiro']], mode, '')}</div>
             <p class="tiny">${mode === 'menor' ? 'Bola de neve: quita a menor primeiro, ganha ânimo e o valor da parcela livre vai pra próxima.' : 'Avalanche: ataca a de juros mais altos primeiro e paga menos juros no total.'}</p>
@@ -990,8 +895,6 @@
       return `<div class="page form-page">
         <header class="topbar"><button class="icon-btn" data-action="dBack">‹ Voltar</button><div class="who"><b>${d.id ? 'Editar' : 'Nova'} dívida</b></div></header>
         <main class="content"><section class="card">
-          <label class="lbl">Tipo</label>
-          <div class="seg col3">${btns('dkind', DEBT_KINDS.map(([k, e, t]) => [k, `${e} ${t.split(' (')[0].replace(' e financiamentos', '').replace(' e renegociações', '')}`]), d.kind || 'emprestimo', '')}</div>
           <label class="lbl" for="dname">O que é?</label><input class="field" id="dname" maxlength="30" value="${esc(d.name)}" placeholder="Ex.: Empréstimo, acordo do cartão">
           <label class="lbl" for="dcred">Com quem? <span class="tiny">(opcional)</span></label><input class="field" id="dcred" maxlength="30" value="${esc(d.creditor || '')}" placeholder="Ex.: Banco, loja, parente">
           <label class="lbl" for="dparc">Valor da parcela</label><input class="field money" id="dparc" inputmode="decimal" placeholder="Ex.: 250,00" value="${v(d.parcela)}">
@@ -1025,7 +928,7 @@
       if (g('ddue')) S.d.dueDay = Number(g('ddue').value);
       if (g('dsaldo')) S.d.saldo = M.parseBRL(g('dsaldo').value) || null;
     }
-    const snapD = (d) => JSON.stringify([d.kind, d.name.trim(), d.creditor, d.parcela, d.total, d.pagas, d.juros, d.dueDay, d.saldo, d.isNew]);
+    const snapD = (d) => JSON.stringify([d.name.trim(), d.creditor, d.parcela, d.total, d.pagas, d.juros, d.dueDay, d.saldo, d.isNew]);
 
     /* ---------- relatório mensal (pra imprimir/PDF ou mandar) ---------- */
     function vRelatorio() {
@@ -1546,7 +1449,6 @@
         X.toast(X.catFala(X.tone(S.cur), 'apagado'));
       },
       xfilter(d) { S.xfilter = d.v; if (d.v === 'in') S.xpay = ''; X.render(); },
-      xcat(d) { S.xcat = d.v; if (d.v) { S.xfilter = 'todos'; S.xpay = ''; } X.go('extrato'); },
       xpay(d) { S.xpay = S.xpay === d.v ? '' : d.v; if (S.xpay) S.xfilter = 'out'; X.render(); },
       openWallet(d) { S.wd = d.id; S.fk = null; S.wdReturn = 'carteira'; X.go('wdetail'); },
       goContas() { X.go('contas'); },
@@ -1593,10 +1495,9 @@
         await put({ ...d, negs: (d.negs || []).concat([{ date: new Date().toISOString(), text: r.text.trim().slice(0, 300) }]) });
         X.render(); X.toast('Negociação anotada.');
       },
-      newDebt() { S.d = { id: null, kind: 'emprestimo', emo: '🏦', name: '', creditor: '', parcela: 0, total: 0, pagas: 0, juros: null, dueDay: 10, saldo: null, isNew: false }; S.d0 = snapD(S.d); S.dReturn = S.view; X.go('debtform'); },
+      newDebt() { S.d = { id: null, name: '', creditor: '', parcela: 0, total: 0, pagas: 0, juros: null, dueDay: 10, saldo: null, isNew: false }; S.d0 = snapD(S.d); S.dReturn = S.view; X.go('debtform'); },
       editDebt(dd) { const d = S.recs.find((r) => r.id === dd.id); if (!d) return; S.d = { ...d }; S.d0 = snapD(S.d); S.dReturn = S.view; X.go('debtform'); },
       disnew(d) { readD(); S.d.isNew = d.v === '1'; X.render(); },
-      dkind(d) { readD(); S.d.kind = d.v; S.d.emo = (DEBT_KINDS.find((x) => x[0] === d.v) || [])[1] || '💸'; X.render(); },
       async dBack() { readD(); if (!(await leave(snapD(S.d) !== S.d0, 'nesta dívida'))) return; const r = S.dReturn; S.d = null; X.go(r === 'divida' && S.dv ? 'divida' : 'dividas'); },
       async dsave() {
         readD();
@@ -1689,8 +1590,8 @@
         const key = M.mkey(S.month);
         const pr = planRec(key);
         S.peReturn = S.view;
-        S.pe = { key, out: { ...((pr && pr.out) || {}) }, in: { ...((pr && pr.in) || {}) }, items: JSON.parse(JSON.stringify((pr && pr.items) || {})) };
-        S.pe0 = JSON.stringify([S.pe.out, S.pe.in, S.pe.items]);
+        S.pe = { key, out: { ...((pr && pr.out) || {}) }, in: { ...((pr && pr.in) || {}) } };
+        S.pe0 = JSON.stringify([S.pe.out, S.pe.in]);
         X.go('planedit');
       },
       peBills() {
@@ -1700,17 +1601,6 @@
         Object.entries(by).forEach(([cat, v]) => { S.pe.out[cat] = Math.max(S.pe.out[cat] || 0, v); });
         X.render(); X.toast('Preenchi com o valor das contas fixas.');
       },
-      peDetail(d) {
-        readPE();
-        const cur = S.pe.out[d.cat] || 0;
-        // sugere itens a partir das contas fixas dessa categoria
-        const fromBills = bills().filter((b) => b.cat === d.cat && b.payer !== 'outro').map((b) => ({ name: b.name, cents: myPart(b, b.kind === 'fixa' ? b.cents : billAvg(b, S.pe.key)) }));
-        S.pe.items[d.cat] = fromBills.length ? fromBills : [{ name: '', cents: cur }];
-        X.render();
-      },
-      peItemAdd(d) { readPE(); S.pe.items[d.cat].push({ name: '', cents: 0 }); X.render(); },
-      peItemDel(d) { readPE(); const it = S.pe.items[d.cat]; it.splice(Number(d.i), 1); const sum = it.reduce((a, x) => a + (x.cents || 0), 0); if (sum) S.pe.out[d.cat] = sum; else delete S.pe.out[d.cat]; if (!it.length) delete S.pe.items[d.cat]; X.render(); },
-      peUndetail(d) { readPE(); delete S.pe.items[d.cat]; X.render(); },
       pePrev() {
         readPE();
         const prev = budget(M.addMonths(S.pe.key, -1));
@@ -1720,14 +1610,13 @@
       },
       async peBack() {
         readPE();
-        if (!(await leave(JSON.stringify([S.pe.out, S.pe.in, S.pe.items]) !== S.pe0, 'no planejamento'))) return;
+        if (!(await leave(JSON.stringify([S.pe.out, S.pe.in]) !== S.pe0, 'no planejamento'))) return;
         const r = S.peReturn; S.pe = null; X.go(r === 'orcamento' ? 'orcamento' : 'home');
       },
       async peSave() {
         readPE();
         const pe = S.pe;
-        Object.keys(pe.items).forEach((c) => { pe.items[c] = pe.items[c].filter((it) => it.cents || (it.name || '').trim()); if (!pe.items[c].length) delete pe.items[c]; });
-        await put({ id: `plan-${pe.key}`, type: 'plan', key: pe.key, out: pe.out, in: pe.in, items: pe.items, updatedAt: new Date().toISOString() });
+        await put({ id: `plan-${pe.key}`, type: 'plan', key: pe.key, out: pe.out, in: pe.in, updatedAt: new Date().toISOString() });
         S.pe = null; X.go('orcamento');
         const t = X.tone(S.cur);
         X.toast(t === 'debochado' ? 'Planejamento salvo. Agora é cumprir, hein.' : 'Planejamento salvo! Vou te ajudar a acompanhar.');
@@ -2029,9 +1918,9 @@
       reload, home, moodOnEnter, back, settingsCats, state,
       views: { lancar: vLancar, extrato: vExtrato, carteira: vCarteira, wallet: vWallet, wdetail: vWDetail, catform: vCatForm, cardprev: vPrev,
         contas: vContas, billform: vBillForm, billpay: vBillPay, orcamento: vOrcamento, planedit: vPlanEdit,
-        resumo: vResumo, assinaturas: vSubs, subform: vSubForm, dividas: vDividas, divida: vDivida, debtform: vDebtForm, relatorio: vRelatorio, mais: vMais },
+        resumo: vResumo, assinaturas: vSubs, subform: vSubForm, dividas: vDividas, divida: vDivida, debtform: vDebtForm, relatorio: vRelatorio },
       actions,
-      onInput(e) { if (e.target.id === 'fdesc' && S.f) S.f.desc = e.target.value; if (e.target.id === 'busca') filterMais(e.target.value); },
+      onInput(e) { if (e.target.id === 'fdesc' && S.f) S.f.desc = e.target.value; },
       onChange(e) { if (e.target.id === 'fdate' && S.f && e.target.value) { readF(); S.f.date = e.target.value; X.render(); } }
     };
   };
